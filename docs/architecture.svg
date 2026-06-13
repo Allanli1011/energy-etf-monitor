@@ -1,0 +1,62 @@
+<svg width="680" viewBox="0 0 680 528" xmlns="http://www.w3.org/2000/svg" role="img" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<title>energy-etf-monitor architecture</title>
+<desc>Top-down nightly batch pipeline: free data sources to idempotent connectors to PostgreSQL with report_date and knowledge_date dual timestamps, to feature engineering, to two LightGBM heads (price-direction and roll-spread), to a Streamlit dashboard with alerts. Blue marks the correctness keystone, the two model heads, and the dashboard; gray marks the data plumbing.</desc>
+<style>
+.bg-gray{fill:#f0f0ef;stroke:#9a9a96;stroke-width:.75}
+.bg-blue{fill:#e6f1fb;stroke:#2f6fbf;stroke-width:.75}
+.t-title{fill:#2a2a28;font-size:14px;font-weight:500}
+.t-sub{fill:#55554f;font-size:12px;font-weight:400}
+.t-blue-title{fill:#0c447c;font-size:14px;font-weight:500}
+.t-blue-sub{fill:#1d5aa0;font-size:12px;font-weight:400}
+.t-legend{fill:#55554f;font-size:12px;font-weight:400}
+.arr{stroke:#8a8a86;stroke-width:1.25;fill:none}
+@media (prefers-color-scheme: dark){
+.bg-gray{fill:#2a2b30;stroke:#6b6c72}
+.bg-blue{fill:#143049;stroke:#5b8fc9}
+.t-title{fill:#e8e8e6}.t-sub{fill:#b4b4ae}
+.t-blue-title{fill:#cfe3f7}.t-blue-sub{fill:#9cc2e8}
+.t-legend{fill:#b4b4ae}.arr{stroke:#7d7e84}
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<rect class="bg-gray" x="170" y="48" width="340" height="52" rx="8"/>
+<text class="t-title" x="340" y="71" text-anchor="middle">Data sources (all free)</text>
+<text class="t-sub" x="340" y="89" text-anchor="middle">EIA · FRED · CFTC COT · CME settlements · USCF holdings</text>
+<line class="arr" x1="340" y1="100" x2="340" y2="123" marker-end="url(#arrow)"/>
+
+<rect class="bg-gray" x="170" y="124" width="340" height="52" rx="8"/>
+<text class="t-title" x="340" y="147" text-anchor="middle">Ingestion</text>
+<text class="t-sub" x="340" y="165" text-anchor="middle">idempotent connector per source → data/raw</text>
+<line class="arr" x1="340" y1="176" x2="340" y2="199" marker-end="url(#arrow)"/>
+
+<rect class="bg-blue" x="170" y="200" width="340" height="52" rx="8"/>
+<text class="t-blue-title" x="340" y="223" text-anchor="middle">Storage · PostgreSQL (correctness keystone)</text>
+<text class="t-blue-sub" x="340" y="241" text-anchor="middle">report_date + knowledge_date dual timestamps</text>
+<line class="arr" x1="340" y1="252" x2="340" y2="275" marker-end="url(#arrow)"/>
+
+<rect class="bg-gray" x="170" y="276" width="340" height="52" rx="8"/>
+<text class="t-title" x="340" y="299" text-anchor="middle">Feature engineering</text>
+<text class="t-sub" x="340" y="317" text-anchor="middle">carry · COT index · inventory surprise · crowding</text>
+<line class="arr" x1="320" y1="328" x2="225" y2="351" marker-end="url(#arrow)"/>
+<line class="arr" x1="360" y1="328" x2="455" y2="351" marker-end="url(#arrow)"/>
+
+<rect class="bg-blue" x="110" y="352" width="220" height="52" rx="8"/>
+<text class="t-blue-title" x="220" y="375" text-anchor="middle">Price-direction model</text>
+<text class="t-blue-sub" x="220" y="393" text-anchor="middle">LightGBM · 5-day up/down</text>
+
+<rect class="bg-blue" x="350" y="352" width="220" height="52" rx="8"/>
+<text class="t-blue-title" x="460" y="375" text-anchor="middle">Roll-spread model</text>
+<text class="t-blue-sub" x="460" y="393" text-anchor="middle">M1–M2 direction · core</text>
+<line class="arr" x1="220" y1="404" x2="318" y2="427" marker-end="url(#arrow)"/>
+<line class="arr" x1="460" y1="404" x2="362" y2="427" marker-end="url(#arrow)"/>
+
+<rect class="bg-blue" x="170" y="428" width="340" height="52" rx="8"/>
+<text class="t-blue-title" x="340" y="451" text-anchor="middle">Dashboard + alerts</text>
+<text class="t-blue-sub" x="340" y="469" text-anchor="middle">today's calls · model health · roll-window alert</text>
+
+<rect class="bg-gray" x="178" y="498" width="14" height="14" rx="3"/>
+<text class="t-legend" x="200" y="509" text-anchor="start">data plumbing</text>
+<rect class="bg-blue" x="320" y="498" width="14" height="14" rx="3"/>
+<text class="t-legend" x="342" y="509" text-anchor="start">correctness · prediction · presentation</text>
+</svg>

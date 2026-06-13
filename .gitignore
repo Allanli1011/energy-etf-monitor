@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# Data (never commit raw/processed data or local DB dumps)
+data/raw/
+data/processed/
+*.parquet
+*.duckdb
+*.sqlite
+
+# Secrets / config
+.env
+.env.*
+secrets.*
+*.key
+
+# Models / experiment tracking
+mlruns/
+*.pkl
+*.joblib
+
+# Tooling
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
