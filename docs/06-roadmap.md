@@ -120,9 +120,18 @@ The first daily-inference slice is implemented:
   `knowledge_date`, and refuses swapped or horizon-mismatched model heads. Out-of-range
   probabilities are quarantined by the quality gate.
 
-Still required before Phase 4 is complete: LightGBM heads, a Streamlit dashboard (Today's Call /
-Curve Explorer / Model Health) reading `daily_predictions`, and a flat-file prediction log for
-decay tracking.
+Model health / decay monitor (implemented):
+- `model-health --commodity ... [--as-of ...] [--rolling-window N] [--report-dir ...]` scores
+  persisted predictions against realized outcomes and reports model-vs-naive accuracy and Brier,
+  overall, per regime, and over a trailing rolling window.
+- Scoring is point-in-time: a prediction is only graded once the feature row `horizon` trading
+  days later is available AND its `knowledge_date <= as_of`, so the monitor never credits an
+  outcome that could not yet have been observed. Quarantined predictions are skipped.
+- `model_minus_naive_accuracy` per head is the headline decay signal.
+
+Still required before Phase 4 is complete: LightGBM heads (currently a hand-rolled logistic
+baseline) and a Streamlit dashboard (Today's Call / Curve Explorer / Model Health) reading
+`daily_predictions` and the model-health report.
 
 ## Phase 7: News Impact Monitor
 

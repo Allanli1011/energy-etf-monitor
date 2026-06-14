@@ -191,6 +191,15 @@ uv run energy-etf-monitor predict-daily \
   --load
 ```
 
+Score persisted predictions against realized outcomes (decay monitor):
+
+```bash
+uv run energy-etf-monitor model-health \
+  --commodity WTI \
+  --rolling-window 20 \
+  --report-dir data/processed/model_health
+```
+
 Raw payloads are saved before parsing under `data/raw/<source>/<date>/`, matching the provenance
 rule in the architecture plan. Parsed records carry both `report_date` and `knowledge_date`.
 Database writes are idempotent on each table's natural key, and `knowledge_date` is stored as
@@ -224,6 +233,8 @@ pipeline with point-in-time tests, curve-shape features, front-month return/carr
 historical COT/inventory transforms, roll-window features, range construction, and Parquet export.
 It also includes a one-step feature-cache backfill command. Phase 3 has forward target generation,
 purged walk-forward naive/logistic baselines (look-ahead leakage fixed), regime-sliced reports, and
-reusable logistic model artifacts. Phase 4 has started with two-head daily inference
-(`predict-daily`) writing to the `daily_predictions` table. Target stack remains Python 3.12+,
+reusable logistic model artifacts. Phase 4 has two-head daily inference (`predict-daily`) writing to
+the `daily_predictions` table and a point-in-time decay monitor (`model-health`) scoring predictions
+against realized outcomes (model-vs-naive accuracy/Brier, overall, per regime, and rolling). Still
+pending for Phase 4: LightGBM heads and the Streamlit dashboard. Target stack remains Python 3.12+,
 PostgreSQL 16, LightGBM, Streamlit — all free / self-hostable.

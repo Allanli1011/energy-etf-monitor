@@ -787,3 +787,77 @@ def test_predict_daily_command_errors_when_no_feature_row(monkeypatch, tmp_path)
 
     assert result.exit_code != 0
     assert "No WTI feature row available" in result.output
+
+
+def test_model_health_command_scores_and_reports(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    loaded = {}
+    report_dir = tmp_path / "health"
+
+    class FakeReport:
+        outcomes = [object(), object()]
+        metrics = {"price_model_accuracy": 0.75}
+
+    class FakeExported:
+        outcomes_path = report_dir / "model_health_outcomes_WTI.csv"
+        metrics_path = report_dir / "model_health_metrics_WTI.json"
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def list_daily_predictions(self, *, commodity):
+            loaded["pred_commodity"] = commodity
+            return ["prediction"]
+
+        def list_daily_feature_rows(self, *, commodity):
+            loaded["feature_commodity"] = commodity
+            return ["feature"]
+
+    def fake_build(predictions, feature_rows, *, as_of, commodity, rolling_window):
+        loaded["build_kwargs"] = {
+            "predictions": predictions,
+            "feature_rows": feature_rows,
+            "as_of": as_of,
+            "commodity": commodity,
+            "rolling_window": rolling_window,
+        }
+        return FakeReport()
+
+    def fake_export(report, destination):
+        loaded["export"] = (report, destination)
+        return FakeExported()
+
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+    monkeypatch.setattr(cli, "build_model_health_report", fake_build)
+    monkeypatch.setattr(cli, "export_model_health_report", fake_export)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "model-health",
+            "--as-of",
+            "2026-06-12T18:00:00+00:00",
+            "--rolling-window",
+            "10",
+            "--report-dir",
+            str(report_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert loaded["pred_commodity"] == "WTI"
+    assert loaded["feature_commodity"] == "WTI"
+    assert loaded["build_kwargs"]["as_of"] == datetime(2026, 6, 12, 18, tzinfo=UTC)
+    assert loaded["build_kwargs"]["rolling_window"] == 10
+    assert loaded["build_kwargs"]["predictions"] == ["prediction"]
+    assert "Scored 2 WTI predictions" in result.output
+    assert "price_model_accuracy=0.7500" in result.output
+    assert str(FakeExported.metrics_path) in result.output

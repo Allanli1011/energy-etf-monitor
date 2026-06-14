@@ -22,6 +22,10 @@ from energy_etf_monitor.modeling.artifacts import (
 )
 from energy_etf_monitor.modeling.baselines import evaluate_walk_forward_baselines
 from energy_etf_monitor.modeling.dataset import build_supervised_examples, load_feature_cache
+from energy_etf_monitor.modeling.monitoring import (
+    build_model_health_report,
+    export_model_health_report,
+)
 from energy_etf_monitor.modeling.predict import predict_two_head
 from energy_etf_monitor.modeling.reports import export_baseline_evaluation_report
 from energy_etf_monitor.storage.db import create_db_and_tables
@@ -278,6 +282,39 @@ def predict_daily(
         typer.echo(f"spread drivers: {prediction.spread_top_drivers}")
         if load:
             _echo_load_result(repository.upsert_daily_predictions([prediction]))
+
+
+@app.command()
+def model_health(
+    commodity: str = typer.Option("WTI", "--commodity"),
+    as_of: str | None = typer.Option(None, "--as-of"),
+    rolling_window: int = typer.Option(20, "--rolling-window"),
+    report_dir: str | None = typer.Option(None, "--report-dir"),
+) -> None:
+    """Score persisted predictions against realized outcomes (decay monitor)."""
+
+    evaluated_at = datetime.fromisoformat(as_of) if as_of else datetime.now(UTC)
+    with IngestionRepository.from_settings(Settings()) as repository:
+        predictions = repository.list_daily_predictions(commodity=commodity)
+        feature_rows = repository.list_daily_feature_rows(commodity=commodity)
+    report = build_model_health_report(
+        predictions,
+        feature_rows,
+        as_of=evaluated_at,
+        commodity=commodity,
+        rolling_window=rolling_window,
+    )
+    typer.echo(
+        f"Scored {len(report.outcomes)} {commodity} predictions with realized outcomes."
+    )
+    if report.metrics:
+        typer.echo(_format_metrics(report.metrics))
+    if report_dir:
+        exported = export_model_health_report(report, Path(report_dir))
+        typer.echo(
+            "Exported model-health outcomes to "
+            f"{exported.outcomes_path} and metrics to {exported.metrics_path}."
+        )
 
 
 @app.command()
