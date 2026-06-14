@@ -212,10 +212,23 @@ uv run energy-etf-monitor model-health \
   --report-dir data/processed/model_health
 ```
 
-Ingest, classify, and load market-moving news (free GDELT, no key):
+Ingest, classify, and load market-moving news (free GDELT + RSS, no key; Marketaux/LLM/webhook
+alerts enabled by their optional secrets):
 
 ```bash
 uv run energy-etf-monitor ingest-news --timespan 1d --load
+```
+
+Train a pooled cross-commodity model, or retrain everything from accumulated history:
+
+```bash
+uv run energy-etf-monitor train-pooled-artifact \
+  --feature-cache WTI=data/processed/wti_daily_features.parquet \
+  --feature-cache NATGAS=data/processed/natgas_daily_features.parquet \
+  --target-name price_direction \
+  --output-path models/pooled_price_logistic.json
+
+uv run energy-etf-monitor retrain --models-dir models   # per-commodity + pooled heads
 ```
 
 Launch the dashboard (Latest News / Today's Call / Price & Curve / Positioning / Inventory /
@@ -293,5 +306,9 @@ building, prediction, model health, and the dashboard all work per-commodity via
 (Brent pending an ICE curve source). Phase 7 adds the News Impact Monitor: a free GDELT connector,
 a transparent rule-based impact classifier (commodity / catalyst / direction / importance /
 confidence), URL+title deduplication, a dashboard news lane, and high-impact alert selection;
-`ingest-news` and the nightly job populate it. Target stack remains Python 3.12+, PostgreSQL 16,
-LightGBM, Streamlit — all free / self-hostable.
+`ingest-news` and the nightly job populate it. Enhancements on top: multi-source news (Marketaux +
+RSS), an optional LLM classifier (`llm` extra), Slack/ntfy alert posting, point-in-time news
+features in the model, cross-commodity pooled training, and a monthly auto-retrain workflow that
+commits refreshed artifacts. Scheduled in the cloud via three GitHub Actions workflows (CI, nightly,
+monthly-retrain) — see [docs/07-deployment.md](docs/07-deployment.md). Target stack remains
+Python 3.12+, PostgreSQL 16, LightGBM, Streamlit — all free / self-hostable.

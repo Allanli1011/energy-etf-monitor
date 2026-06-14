@@ -526,6 +526,68 @@ def _both_artifacts_exist(price_artifact: str | None, spread_artifact: str | Non
 
 
 @app.command()
+def retrain(
+    horizon_days: int = typer.Option(5, "--horizon-days"),
+    commodity: Annotated[list[str] | None, typer.Option("--commodity")] = None,
+    models_dir: str = typer.Option("models", "--models-dir"),
+    pooled: bool = typer.Option(True, "--pooled/--no-pooled"),
+) -> None:
+    """Rebuild feature caches from the DB and retrain per-commodity (and pooled) logistic heads."""
+
+    settings = Settings()
+    configs = _resolve_commodities(commodity)
+    models_path = Path(models_dir)
+    targets = ("price_direction", "spread_direction")
+
+    cache_paths: dict[str, Path] = {}
+    with IngestionRepository.from_settings(settings) as repository:
+        for config in configs:
+            rows = repository.list_daily_feature_rows(commodity=config.name)
+            cache = export_daily_features_to_parquet(
+                rows,
+                settings.processed_data_dir / f"{config.name.lower()}_daily_features.parquet",
+            )
+            cache_paths[config.name] = cache
+            typer.echo(f"Exported {len(rows)} {config.name} feature rows.")
+
+    trained = 0
+    for config in configs:
+        examples = build_supervised_examples(
+            load_feature_cache(cache_paths[config.name]), horizon_days=horizon_days
+        )
+        if not examples:
+            typer.echo(f"Skipping {config.name}: no training examples yet.")
+            continue
+        for target in targets:
+            artifact = train_logistic_artifact(
+                examples, target_name=target, horizon_days=horizon_days
+            )
+            save_model_artifact(
+                artifact,
+                models_path / f"{config.name.lower()}_{_target_slug(target)}_logistic.json",
+            )
+            trained += 1
+
+    if pooled and cache_paths:
+        pooled_examples = build_pooled_examples(cache_paths, horizon_days=horizon_days)
+        if pooled_examples:
+            for target in targets:
+                artifact = train_logistic_artifact(
+                    pooled_examples, target_name=target, horizon_days=horizon_days
+                )
+                save_model_artifact(
+                    artifact, models_path / f"pooled_{_target_slug(target)}_logistic.json"
+                )
+                trained += 1
+
+    typer.echo(f"Retrained {trained} artifacts into {models_path}.")
+
+
+def _target_slug(target_name: str) -> str:
+    return "price" if target_name == "price_direction" else "spread"
+
+
+@app.command()
 def model_health(
     commodity: str = typer.Option("WTI", "--commodity"),
     as_of: str | None = typer.Option(None, "--as-of"),

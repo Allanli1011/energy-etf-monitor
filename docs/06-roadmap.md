@@ -202,12 +202,21 @@ Implemented:
 - **Dashboard + alerts:** "Latest market-moving news" lane (sorted by importance then recency) and
   `alert_worthy` selection (high importance + clear direction + confidence).
 
-Deferred (interface is ready for them):
-- Marketaux + official RSS/API adapters (EIA/OPEC/IEA/exchange notices).
-- An LLM-backed classifier implementation (cost/keys); the rule-based one is the free default.
-- Live Slack/`ntfy` posting of alerts (currently surfaced in CLI output / dashboard).
-- Promoting aggregated news features (count, tone, direction-weighted importance) into the
-  price/spread models — only after enough point-in-time history and walk-forward validation.
+Follow-ups since shipped:
+- ✅ Marketaux connector + stdlib RSS connector (default EIA/OilPrice feeds); `_collect_news` fans
+  in GDELT + Marketaux + RSS resiliently.
+- ✅ LLM-backed classifier (`llm` extra, `news_classifier=llm`) behind the same interface, with
+  rule-based fallback.
+- ✅ Live Slack / `ntfy` alert posting (`alert_webhook_url`/`kind`).
+- ✅ Aggregated point-in-time news features (count, tone, direction-weighted importance) added to
+  the feature builder — available to models; promote into the model feature set after walk-forward
+  shows value.
+- ✅ Cross-commodity pooled training (`train-pooled-artifact`, commodity one-hot dummies).
+- ✅ Monthly auto-retrain workflow committing refreshed artifacts.
+
+Still genuinely deferred:
+- Official API adapters beyond RSS (structured EIA/OPEC/IEA feeds), a holiday-aware COT calendar,
+  and validated CFTC contract codes / real USCF PCF formats (need live data to verify).
 
 ## Phase 7: News Impact Monitor (original spec)
 

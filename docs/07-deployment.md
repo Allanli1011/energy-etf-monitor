@@ -57,8 +57,26 @@ The cron is `0 22 * * 1-5` (weekdays 22:00 UTC, after the US settlement window).
 manually any time from the Actions tab via **Run workflow** (`workflow_dispatch`). Note that GitHub
 may delay scheduled runs under load and disables schedules on repos with no activity for 60 days.
 
-## Monthly retrain (manual for now)
+## Monthly retrain (automated)
 
-Daily runs predict with the committed artifacts; retraining is not yet automated. Periodically
-rebuild the feature cache and retrain the heads (purged walk-forward governs evaluation), then
-commit the refreshed artifacts. A scheduled monthly retrain workflow is a natural follow-up.
+`.github/workflows/monthly-retrain.yml` runs on the 1st of each month (and on demand). It rebuilds
+each commodity's feature cache from the hosted DB, retrains the per-commodity and pooled logistic
+heads via `energy-etf-monitor retrain`, and commits the refreshed `models/*.json` back to the repo
+(`contents: write`, commit tagged `[skip ci]`). The daily job then predicts with the updated
+artifacts. Failures email the same alert address.
+
+## Optional secrets (news enrichment & alerts)
+
+| Secret / setting | Purpose |
+|---|---|
+| `ENERGY_ETF_MONITOR_MARKETAUX_API_KEY` | Enable the Marketaux news source (free tier) |
+| `ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY` + `ENERGY_ETF_MONITOR_NEWS_CLASSIFIER=llm` | Use the LLM news classifier (`llm` extra); otherwise the free rule-based one is used |
+| `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL` + `..._ALERT_WEBHOOK_KIND` (`slack`/`ntfy`) | Post high-impact news alerts to Slack or ntfy |
+
+All are optional — without them the pipeline runs on free GDELT + RSS news and the rule-based
+classifier, and surfaces alerts in logs / the dashboard.
+
+## Node runtime
+
+The workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt the JavaScript actions onto
+Node 24 ahead of GitHub's default switch; bump action majors when Node-24-native releases land.

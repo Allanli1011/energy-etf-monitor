@@ -1124,6 +1124,52 @@ def test_ingest_news_command_reports_alerts_and_loads(monkeypatch) -> None:
     assert loaded["records"] == articles
 
 
+def test_retrain_command_trains_per_commodity_artifacts(monkeypatch, tmp_path) -> None:
+    saved: list = []
+
+    class FakeArtifact:
+        model_type = "logistic_regression"
+        target_name = "price_direction"
+        training_count = 5
+        trained_through = date(2026, 6, 12)
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def list_daily_feature_rows(self, *, commodity):
+            return ["row"]
+
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+    monkeypatch.setattr(cli, "export_daily_features_to_parquet", lambda rows, dest: dest)
+    monkeypatch.setattr(cli, "load_feature_cache", lambda path: ["cached"])
+    monkeypatch.setattr(cli, "build_supervised_examples", lambda rows, *, horizon_days: ["ex"])
+    monkeypatch.setattr(cli, "train_logistic_artifact", lambda examples, **kwargs: FakeArtifact())
+
+    def _fake_save(artifact, path):
+        saved.append(path)
+        return path
+
+    monkeypatch.setattr(cli, "save_model_artifact", _fake_save)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["retrain", "--commodity", "WTI", "--no-pooled", "--models-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    names = sorted(p.name for p in saved)
+    assert names == ["wti_price_logistic.json", "wti_spread_logistic.json"]
+    assert "Retrained 2 artifacts" in result.output
+
+
 def test_model_health_command_scores_and_reports(monkeypatch, tmp_path) -> None:
     runner = CliRunner()
     loaded = {}
