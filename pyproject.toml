@@ -25,6 +25,9 @@ dev = [
 dashboard = [
     "streamlit>=1.39.0",
 ]
+gbm = [
+    "lightgbm>=4.5.0",
+]
 
 [project.scripts]
 energy-etf-monitor = "energy_etf_monitor.cli:app"
@@ -51,7 +54,10 @@ markers = [
 ]
 
 [tool.coverage.run]
-omit = ["src/energy_etf_monitor/dashboard/app.py"]
+omit = [
+    "src/energy_etf_monitor/dashboard/app.py",
+    "src/energy_etf_monitor/modeling/gbm.py",
+]
 
 [tool.ruff]
 line-length = 100

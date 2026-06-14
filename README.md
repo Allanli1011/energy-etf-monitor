@@ -180,6 +180,17 @@ uv run energy-etf-monitor train-wti-logistic-artifact \
   --output-path data/processed/models/wti_spread_logistic.json
 ```
 
+Optionally train LightGBM heads instead (requires the `gbm` extra); `predict-daily` auto-detects
+the model type from the saved artifact:
+
+```bash
+uv run --extra gbm energy-etf-monitor train-wti-gbm-artifact \
+  --feature-cache data/processed/wti_daily_features.parquet \
+  --horizon-days 5 \
+  --target-name price_direction \
+  --output-path data/processed/models/wti_price_gbm.json
+```
+
 Score the latest point-in-time feature row with both heads (add `--load` to persist to the
 `daily_predictions` table):
 
@@ -241,7 +252,9 @@ It also includes a one-step feature-cache backfill command. Phase 3 has forward 
 purged walk-forward naive/logistic baselines (look-ahead leakage fixed), regime-sliced reports, and
 reusable logistic model artifacts. Phase 4 has two-head daily inference (`predict-daily`) writing to
 the `daily_predictions` table, a point-in-time decay monitor (`model-health`) scoring predictions
-against realized outcomes (model-vs-naive accuracy/Brier, overall, per regime, and rolling), and a
-Streamlit dashboard (`--extra dashboard`) with a tested pure data layer. Still pending for Phase 4:
-LightGBM heads (the logistic baseline is the current model). Target stack remains Python 3.12+,
-PostgreSQL 16, LightGBM, Streamlit — all free / self-hostable.
+against realized outcomes (model-vs-naive accuracy/Brier, overall, per regime, and rolling), a
+Streamlit dashboard (`--extra dashboard`) with a tested pure data layer, and LightGBM heads
+(`--extra gbm`) sharing one interface with the logistic baseline. **Phase 4 is complete** (MVP
+definition of done met). Next: Phase 5 nightly orchestration + alerting, then Phase 6 expansion to
+Brent / NatGas / RBOB. Target stack remains Python 3.12+, PostgreSQL 16, LightGBM, Streamlit — all
+free / self-hostable.

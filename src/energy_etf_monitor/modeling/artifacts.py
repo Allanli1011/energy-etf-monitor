@@ -28,6 +28,14 @@ class ModelArtifact:
             scales=self.scales,
         ).predict(features)
 
+    def raw_contributions(self, features: dict[str, float]) -> dict[str, float]:
+        """Each feature's additive contribution to the log-odds: weight * value / scale."""
+
+        return {
+            name: weight * (float(features.get(name, 0.0)) / (self.scales.get(name, 1.0) or 1.0))
+            for name, weight in zip(self.feature_names, self.weights, strict=True)
+        }
+
 
 def train_logistic_artifact(
     examples: list[SupervisedExample],

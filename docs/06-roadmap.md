@@ -137,8 +137,18 @@ Streamlit dashboard (implemented):
   shell, so the dashboard logic is covered without a headless-browser test. `streamlit` is an
   optional `dashboard` extra, keeping the core install light.
 
-Still required before Phase 4 is complete: LightGBM heads (the hand-rolled logistic model is the
-current baseline; gradient boosting is the next modeling upgrade).
+LightGBM heads (implemented):
+- `train-wti-gbm-artifact ...` trains a LightGBM head per target and saves it; `predict-daily`
+  transparently loads either a logistic or a LightGBM artifact via `model_type` dispatch. Both
+  backends share the `PredictionModel` interface, and LightGBM driver explanations use its
+  `pred_contrib` (SHAP) values — the same log-odds-contribution framing as the logistic model.
+- `lightgbm` is an optional `gbm` extra; the logistic baseline remains the always-available
+  default and the backtest benchmark.
+
+**Phase 4 is complete** — the MVP definition of done is met: a WTI loop producing price- and
+spread-direction leans with confidence and top drivers, displayed against a naive baseline, with a
+point-in-time model-health/decay monitor, all on dual-timestamp data. Next: Phase 5 (nightly
+orchestration + alerting), then Phase 6 (Brent / NatGas / RBOB expansion).
 
 ## Phase 7: News Impact Monitor
 

@@ -709,7 +709,7 @@ def test_predict_daily_command_scores_latest_feature_row_and_loads(monkeypatch, 
             loaded["records"] = records
             return cli.LoadResult(inserted=1)
 
-    def fake_load_model_artifact(path):
+    def fake_load_artifact(path):
         loaded.setdefault("artifact_paths", []).append(path)
         return path
 
@@ -723,7 +723,7 @@ def test_predict_daily_command_scores_latest_feature_row_and_loads(monkeypatch, 
         return prediction
 
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
-    monkeypatch.setattr(cli, "load_model_artifact", fake_load_model_artifact)
+    monkeypatch.setattr(cli, "load_artifact", fake_load_artifact)
     monkeypatch.setattr(cli, "predict_two_head", fake_predict_two_head)
 
     result = runner.invoke(
@@ -769,7 +769,7 @@ def test_predict_daily_command_errors_when_no_feature_row(monkeypatch, tmp_path)
             return None
 
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
-    monkeypatch.setattr(cli, "load_model_artifact", lambda path: path)
+    monkeypatch.setattr(cli, "load_artifact", lambda path: path)
     monkeypatch.setattr(cli, "predict_two_head", lambda **kwargs: None)
 
     result = runner.invoke(

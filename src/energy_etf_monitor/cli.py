@@ -15,13 +15,10 @@ from energy_etf_monitor.ingestion.runner import (
     PhaseZeroIngestionRunner,
 )
 from energy_etf_monitor.ingestion.uscf import UscfPcfConnector
-from energy_etf_monitor.modeling.artifacts import (
-    load_model_artifact,
-    save_model_artifact,
-    train_logistic_artifact,
-)
+from energy_etf_monitor.modeling.artifacts import save_model_artifact, train_logistic_artifact
 from energy_etf_monitor.modeling.baselines import evaluate_walk_forward_baselines
 from energy_etf_monitor.modeling.dataset import build_supervised_examples, load_feature_cache
+from energy_etf_monitor.modeling.loader import load_artifact
 from energy_etf_monitor.modeling.monitoring import (
     build_model_health_report,
     export_model_health_report,
@@ -240,6 +237,34 @@ def train_wti_logistic_artifact(
 
 
 @app.command()
+def train_wti_gbm_artifact(
+    feature_cache: str = typer.Option(..., "--feature-cache"),
+    horizon_days: int = typer.Option(5, "--horizon-days"),
+    target_name: str = typer.Option("price_direction", "--target-name"),
+    num_boost_round: int = typer.Option(100, "--num-boost-round"),
+    output_path: str = typer.Option(..., "--output-path"),
+) -> None:
+    """Train and save a WTI LightGBM model artifact (requires the `gbm` extra)."""
+
+    from energy_etf_monitor.modeling.gbm import save_gbm_artifact, train_gbm_artifact
+
+    rows = load_feature_cache(Path(feature_cache))
+    examples = build_supervised_examples(rows, horizon_days=horizon_days)
+    artifact = train_gbm_artifact(
+        examples,
+        target_name=target_name,
+        horizon_days=horizon_days,
+        num_boost_round=num_boost_round,
+    )
+    saved_path = save_gbm_artifact(artifact, Path(output_path))
+    typer.echo(
+        f"Trained {artifact.model_type} {artifact.target_name} model on "
+        f"{artifact.training_count} examples through {artifact.trained_through}."
+    )
+    typer.echo(f"Saved model artifact to {saved_path}.")
+
+
+@app.command()
 def predict_daily(
     price_artifact: str = typer.Option(..., "--price-artifact"),
     spread_artifact: str = typer.Option(..., "--spread-artifact"),
@@ -250,8 +275,8 @@ def predict_daily(
     """Score the latest point-in-time feature row with both model heads."""
 
     predicted_at = datetime.fromisoformat(as_of) if as_of else datetime.now(UTC)
-    price_model = load_model_artifact(Path(price_artifact))
-    spread_model = load_model_artifact(Path(spread_artifact))
+    price_model = load_artifact(Path(price_artifact))
+    spread_model = load_artifact(Path(spread_artifact))
     with IngestionRepository.from_settings(Settings()) as repository:
         feature_row = repository.latest_daily_feature_row(
             commodity=commodity,

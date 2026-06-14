@@ -51,8 +51,11 @@ free data sources
   DuckDB as the local cache writer/reader for modeling and backtests.
 
 ### 4. Modeling
-- **LightGBM**, two heads: `price_direction` and `spread_direction`. scikit-learn
-  logistic/ridge as the interpretable baseline.
+- Two heads: `price_direction` and `spread_direction`, behind one `PredictionModel` interface
+  (`predict` + `raw_contributions`). Two backends implement it: a hand-rolled logistic baseline
+  (always available) and **LightGBM** (optional `gbm` extra). A dispatching `load_artifact` reads
+  each saved artifact's `model_type` and lazily imports LightGBM only when needed, so the core
+  install never requires the native dependency.
 - Pooled cross-commodity training (commodity-id as a categorical) to fight thin sample size.
 - Expanding-window walk-forward, monthly retrain, evaluated across the 2008 / 2014–16 / 2020 /
   2021–22 regimes.

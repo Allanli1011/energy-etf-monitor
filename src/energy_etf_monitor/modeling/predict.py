@@ -1,10 +1,24 @@
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from typing import Protocol
 
-from energy_etf_monitor.modeling.artifacts import ModelArtifact
 from energy_etf_monitor.modeling.dataset import DEFAULT_FEATURE_COLUMNS, TARGET_SOURCE_COLUMNS
 from energy_etf_monitor.records import DailyFeatureRow, DailyPrediction
+
+
+class PredictionModel(Protocol):
+    """Common interface implemented by both the logistic and LightGBM artifacts."""
+
+    model_type: str
+    target_name: str
+    horizon_days: int
+    trained_through: date
+    training_count: int
+
+    def predict(self, features: dict[str, float]) -> float: ...
+
+    def raw_contributions(self, features: dict[str, float]) -> dict[str, float]: ...
 
 
 @dataclass(frozen=True)
@@ -13,7 +27,7 @@ class FeatureContribution:
     contribution: float
 
 
-def artifact_version(artifact: ModelArtifact) -> str:
+def artifact_version(artifact: PredictionModel) -> str:
     """Stable, human-readable version stamp for a saved model artifact."""
 
     return (
@@ -39,27 +53,21 @@ def feature_dict_from_row(row: DailyFeatureRow) -> dict[str, float]:
 
 
 def top_feature_contributions(
-    artifact: ModelArtifact,
+    artifact: PredictionModel,
     features: dict[str, float],
     *,
     top_n: int = 3,
 ) -> list[FeatureContribution]:
-    """Rank drivers for a linear logistic model by signed contribution weight*value/scale.
+    """Rank a model's local drivers by absolute log-odds contribution.
 
-    For a logistic model the log-odds is a linear sum of ``weight_i * (value_i / scale_i)``,
-    so each term IS that feature's exact additive contribution to this prediction — an honest
-    local explanation without needing a SHAP dependency.
+    Both backends expose exact additive contributions to the log-odds: the logistic artifact via
+    ``weight * value / scale`` and the LightGBM artifact via its per-feature ``pred_contrib`` SHAP
+    values. So this is an honest local explanation for either model, no extra dependency.
     """
 
     contributions = [
-        FeatureContribution(
-            feature=name,
-            contribution=weight * (float(features.get(name, 0.0)) / (scale or 1.0)),
-        )
-        for name, weight, scale in (
-            (name, weight, artifact.scales.get(name, 1.0))
-            for name, weight in zip(artifact.feature_names, artifact.weights, strict=True)
-        )
+        FeatureContribution(feature=name, contribution=value)
+        for name, value in artifact.raw_contributions(features).items()
     ]
     contributions.sort(key=lambda item: abs(item.contribution), reverse=True)
     return contributions[:top_n]
@@ -68,8 +76,8 @@ def top_feature_contributions(
 def predict_two_head(
     *,
     feature_row: DailyFeatureRow,
-    price_artifact: ModelArtifact,
-    spread_artifact: ModelArtifact,
+    price_artifact: PredictionModel,
+    spread_artifact: PredictionModel,
     predicted_at: datetime,
     top_n: int = 3,
 ) -> DailyPrediction:
