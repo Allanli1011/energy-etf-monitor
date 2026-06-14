@@ -12,7 +12,7 @@ those are proven, the other commodities are largely config-driven expansion.
 | 2 | 2 | Feature pipeline (carry, COT index, inventory surprise, crowding, macro) **with dual-timestamp / lag unit tests on known historical dates** |
 | 3 | 2–3 | Logistic-regression baseline + LightGBM price-head and spread-head via walk-forward; evaluate vs naive-persistence across 2008 / 2014–16 / 2020 / 2021–22 |
 | 4 | 3 | `predict_daily.py` + flat-file prediction log + single-page Streamlit (Today's Call + Curve Explorer + Model Health), **WTI only** |
-| 5 | 3–4 | Wire up nightly orchestration (launchd / Prefect agent) + failure alerting (Slack / ntfy) |
+| 5 | 3–4 | Wire up nightly orchestration (GitHub Actions cron) + failure alerting (email) |
 | 6 | 4–6 | Horizontal expansion: Brent (`BNO`), NatGas (`UNG`/`UNL`), RBOB (`UGA`) via configs + per-issuer PCF parsers; retrain pooled multi-commodity models |
 | 7 | 6+ | Add the News Impact Monitor: a dashboard news lane showing latest energy-futures-moving news, per-article importance, impact direction, confidence, and rationale; then broad funds (`PDBC` / `USCI`), monthly retrain cadence, and decay-triggered review process |
 
@@ -149,6 +149,21 @@ LightGBM heads (implemented):
 spread-direction leans with confidence and top drivers, displayed against a naive baseline, with a
 point-in-time model-health/decay monitor, all on dual-timestamp data. Next: Phase 5 (nightly
 orchestration + alerting), then Phase 6 (Brent / NatGas / RBOB expansion).
+
+## Phase 5 implementation notes
+
+Orchestration runs on GitHub Actions (cloud cron) rather than a local scheduler:
+- `run-nightly` chains ingest → feature build → predict (skipped if artifacts absent) → model
+  health, propagating a non-zero exit on genuine failures so the scheduler can alert.
+- `.github/workflows/nightly.yml` runs it weekdays at 22:00 UTC against a hosted Postgres, with an
+  email alert on failure (`dawidd6/action-send-mail`). `.github/workflows/ci.yml` runs ruff + tests
+  on push/PR.
+- Committed model artifacts live in `models/` (not the gitignored `data/processed/`). Setup —
+  secrets, hosted DB, SMTP, artifacts — is documented in
+  [07-deployment.md](./07-deployment.md).
+
+Still pending for Phase 5: an automated monthly retrain workflow (daily runs currently predict with
+committed artifacts; retraining is manual).
 
 ## Phase 7: News Impact Monitor
 

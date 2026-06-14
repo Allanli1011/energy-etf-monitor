@@ -58,6 +58,7 @@ See [docs/03-architecture.md](docs/03-architecture.md) and
 | [04-data-sources](docs/04-data-sources.md) | Free backbone + paid upgrade slots, with API endpoints / series IDs |
 | [05-prediction-methodology](docs/05-prediction-methodology.md) | Two model heads, feature engineering, evidence, caveats |
 | [06-roadmap](docs/06-roadmap.md) | Phased build (WTI end-to-end first), then horizontal expansion |
+| [07-deployment](docs/07-deployment.md) | Scheduled runs on GitHub Actions (secrets, hosted DB, email alerts) |
 
 ## Development
 
@@ -217,6 +218,19 @@ Launch the dashboard (Today's Call / Price & Curve / Positioning / Inventory / M
 uv run --extra dashboard streamlit run src/energy_etf_monitor/dashboard/app.py
 ```
 
+Run the whole nightly pipeline locally (ingest → features → predict → model health). Prediction is
+skipped if the model artifacts are not present yet:
+
+```bash
+uv run energy-etf-monitor run-nightly \
+  --price-artifact models/wti_price_logistic.json \
+  --spread-artifact models/wti_spread_logistic.json
+```
+
+In the cloud this runs on a schedule via GitHub Actions (`.github/workflows/nightly.yml`) with an
+email alert on failure — see [docs/07-deployment.md](docs/07-deployment.md) for the required
+secrets, hosted Postgres, and artifact setup.
+
 Raw payloads are saved before parsing under `data/raw/<source>/<date>/`, matching the provenance
 rule in the architecture plan. Parsed records carry both `report_date` and `knowledge_date`.
 Database writes are idempotent on each table's natural key, and `knowledge_date` is stored as
@@ -255,6 +269,7 @@ the `daily_predictions` table, a point-in-time decay monitor (`model-health`) sc
 against realized outcomes (model-vs-naive accuracy/Brier, overall, per regime, and rolling), a
 Streamlit dashboard (`--extra dashboard`) with a tested pure data layer, and LightGBM heads
 (`--extra gbm`) sharing one interface with the logistic baseline. **Phase 4 is complete** (MVP
-definition of done met). Next: Phase 5 nightly orchestration + alerting, then Phase 6 expansion to
-Brent / NatGas / RBOB. Target stack remains Python 3.12+, PostgreSQL 16, LightGBM, Streamlit — all
-free / self-hostable.
+definition of done met). Phase 5 orchestration is in place: a `run-nightly` command and GitHub
+Actions workflows (CI on push/PR; a scheduled nightly run with email-on-failure). Next: Phase 6
+expansion to Brent / NatGas / RBOB. Target stack remains Python 3.12+, PostgreSQL 16, LightGBM,
+Streamlit — all free / self-hostable.
