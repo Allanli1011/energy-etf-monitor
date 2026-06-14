@@ -200,6 +200,12 @@ uv run energy-etf-monitor model-health \
   --report-dir data/processed/model_health
 ```
 
+Launch the dashboard (Today's Call / Price & Curve / Positioning / Inventory / Model Health):
+
+```bash
+uv run --extra dashboard streamlit run src/energy_etf_monitor/dashboard/app.py
+```
+
 Raw payloads are saved before parsing under `data/raw/<source>/<date>/`, matching the provenance
 rule in the architecture plan. Parsed records carry both `report_date` and `knowledge_date`.
 Database writes are idempotent on each table's natural key, and `knowledge_date` is stored as
@@ -234,7 +240,8 @@ historical COT/inventory transforms, roll-window features, range construction, a
 It also includes a one-step feature-cache backfill command. Phase 3 has forward target generation,
 purged walk-forward naive/logistic baselines (look-ahead leakage fixed), regime-sliced reports, and
 reusable logistic model artifacts. Phase 4 has two-head daily inference (`predict-daily`) writing to
-the `daily_predictions` table and a point-in-time decay monitor (`model-health`) scoring predictions
-against realized outcomes (model-vs-naive accuracy/Brier, overall, per regime, and rolling). Still
-pending for Phase 4: LightGBM heads and the Streamlit dashboard. Target stack remains Python 3.12+,
+the `daily_predictions` table, a point-in-time decay monitor (`model-health`) scoring predictions
+against realized outcomes (model-vs-naive accuracy/Brier, overall, per regime, and rolling), and a
+Streamlit dashboard (`--extra dashboard`) with a tested pure data layer. Still pending for Phase 4:
+LightGBM heads (the logistic baseline is the current model). Target stack remains Python 3.12+,
 PostgreSQL 16, LightGBM, Streamlit — all free / self-hostable.

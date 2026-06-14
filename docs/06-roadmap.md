@@ -129,9 +129,16 @@ Model health / decay monitor (implemented):
   outcome that could not yet have been observed. Quarantined predictions are skipped.
 - `model_minus_naive_accuracy` per head is the headline decay signal.
 
-Still required before Phase 4 is complete: LightGBM heads (currently a hand-rolled logistic
-baseline) and a Streamlit dashboard (Today's Call / Curve Explorer / Model Health) reading
-`daily_predictions` and the model-health report.
+Streamlit dashboard (implemented):
+- `uv run --extra dashboard streamlit run src/energy_etf_monitor/dashboard/app.py` renders Today's
+  Call (per-head probability vs naive + driver tables), Price & Curve, Positioning (COT), Inventory,
+  and Model Health.
+- All data shaping lives in `dashboard/data.py` (pure, unit-tested); `app.py` is a thin rendering
+  shell, so the dashboard logic is covered without a headless-browser test. `streamlit` is an
+  optional `dashboard` extra, keeping the core install light.
+
+Still required before Phase 4 is complete: LightGBM heads (the hand-rolled logistic model is the
+current baseline; gradient boosting is the next modeling upgrade).
 
 ## Phase 7: News Impact Monitor
 

@@ -81,9 +81,11 @@ free data sources
   Logs to file. **Explicitly not Airflow / Dagster.**
 
 ### 7. Dashboard + alerts
-- **Streamlit + Plotly**, reading Postgres directly. Pages: Today's Calls / Curve Explorer /
-  Positioning (COT) / Inventory / **Latest Market-Moving News** / **Model Health** (rolling Brier
-  vs naive baseline; flags decay).
+- **Streamlit** (`dashboard` extra), reading the repository directly. Implemented sections: Today's
+  Call (per-head probability vs naive + driver tables), Price & Curve, Positioning (COT), Inventory,
+  and **Model Health** (model-vs-naive accuracy/Brier, overall, rolling, and per regime). Data
+  shaping is a pure, unit-tested layer (`dashboard/data.py`); `app.py` is thin glue. The Latest
+  Market-Moving News lane (Phase 7) is not built yet.
 - The Phase 7 news-impact lane shows latest energy-futures-moving headlines with affected
   commodity, catalyst type, importance, impact direction, confidence, short rationale, and source
   link. Article-level labels are display/alerting data first; only aggregated point-in-time news

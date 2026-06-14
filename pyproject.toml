@@ -22,6 +22,9 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.6.8",
 ]
+dashboard = [
+    "streamlit>=1.39.0",
+]
 
 [project.scripts]
 energy-etf-monitor = "energy_etf_monitor.cli:app"
@@ -46,6 +49,9 @@ addopts = [
 markers = [
     "integration: tests that exercise local services or external API boundaries",
 ]
+
+[tool.coverage.run]
+omit = ["src/energy_etf_monitor/dashboard/app.py"]
 
 [tool.ruff]
 line-length = 100
