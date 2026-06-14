@@ -111,3 +111,5 @@ def test_feature_dict_excludes_target_source_columns_and_fills_missing() -> None
     assert features["cl_carry_m1_m2"] == 0.5
     # a column with no value on the row falls back to 0.0
     assert features["real_yield_10y"] == 0.0
+    # the active commodity one-hot dummy is set for pooled-model inference
+    assert features["commodity__WTI"] == 1.0

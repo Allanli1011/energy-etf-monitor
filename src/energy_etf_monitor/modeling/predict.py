@@ -49,6 +49,9 @@ def feature_dict_from_row(row: DailyFeatureRow) -> dict[str, float]:
             continue
         value = getattr(row, column, None)
         features[column] = 0.0 if value is None else float(value)
+    # Pooled cross-commodity models carry commodity one-hot dummies; set the active one so the
+    # right offset applies. Single-commodity artifacts simply ignore this extra key.
+    features[f"commodity__{row.commodity}"] = 1.0
     return features
 
 

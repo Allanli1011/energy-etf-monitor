@@ -22,7 +22,11 @@ from energy_etf_monitor.ingestion.runner import (
 from energy_etf_monitor.ingestion.uscf import UscfPcfConnector
 from energy_etf_monitor.modeling.artifacts import save_model_artifact, train_logistic_artifact
 from energy_etf_monitor.modeling.baselines import evaluate_walk_forward_baselines
-from energy_etf_monitor.modeling.dataset import build_supervised_examples, load_feature_cache
+from energy_etf_monitor.modeling.dataset import (
+    build_pooled_examples,
+    build_supervised_examples,
+    load_feature_cache,
+)
 from energy_etf_monitor.modeling.loader import load_artifact
 from energy_etf_monitor.modeling.monitoring import (
     build_model_health_report,
@@ -317,6 +321,47 @@ def train_wti_logistic_artifact(
         f"{artifact.training_count} examples through {artifact.trained_through}."
     )
     typer.echo(f"Saved model artifact to {saved_path}.")
+
+
+@app.command()
+def train_pooled_artifact(
+    feature_cache: Annotated[list[str], typer.Option("--feature-cache")],
+    output_path: str = typer.Option(..., "--output-path"),
+    horizon_days: int = typer.Option(5, "--horizon-days"),
+    target_name: str = typer.Option("price_direction", "--target-name"),
+    model_type: str = typer.Option("logistic", "--model-type"),
+) -> None:
+    """Train one pooled cross-commodity model from per-commodity caches (NAME=path each)."""
+
+    caches = _parse_cache_specs(feature_cache)
+    examples = build_pooled_examples(caches, horizon_days=horizon_days)
+    if model_type == "gbm":
+        from energy_etf_monitor.modeling.gbm import save_gbm_artifact, train_gbm_artifact
+
+        artifact = train_gbm_artifact(
+            examples, target_name=target_name, horizon_days=horizon_days
+        )
+        saved_path = save_gbm_artifact(artifact, Path(output_path))
+    else:
+        artifact = train_logistic_artifact(
+            examples, target_name=target_name, horizon_days=horizon_days
+        )
+        saved_path = save_model_artifact(artifact, Path(output_path))
+    typer.echo(
+        f"Trained pooled {artifact.model_type} {artifact.target_name} model on "
+        f"{artifact.training_count} examples across {len(caches)} commodities."
+    )
+    typer.echo(f"Saved model artifact to {saved_path}.")
+
+
+def _parse_cache_specs(specs: list[str]) -> dict[str, Path]:
+    caches: dict[str, Path] = {}
+    for spec in specs:
+        name, separator, path = spec.partition("=")
+        if not separator or not name or not path:
+            raise typer.BadParameter(f"--feature-cache must be NAME=path, got: {spec}")
+        caches[name.upper()] = Path(path)
+    return caches
 
 
 @app.command()

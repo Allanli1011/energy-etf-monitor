@@ -132,3 +132,6 @@ class DailyFeatureRow(PointInTimeRecord):
     crowding_contracts_to_oi: float | None = None
     roll_window_flag: float | None = None
     roll_window_crowding_interaction: float | None = None
+    news_count: float | None = None
+    news_tone_mean: float | None = None
+    news_impact_score: float | None = None

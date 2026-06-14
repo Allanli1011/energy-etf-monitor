@@ -108,6 +108,9 @@ def inspect_record_quality(record: PointInTimeRecord) -> QualityGateResult:
             "crowding_contracts_to_oi",
             "roll_window_flag",
             "roll_window_crowding_interaction",
+            "news_count",
+            "news_tone_mean",
+            "news_impact_score",
         ):
             value = getattr(record, field_name)
             if value is not None and not math.isfinite(value):

@@ -731,6 +731,52 @@ def test_train_wti_logistic_artifact_command_saves_model(
     assert str(output_path) in result.output
 
 
+def test_train_pooled_artifact_command_parses_specs_and_trains(monkeypatch, tmp_path) -> None:
+    loaded = {}
+    output_path = tmp_path / "pooled.json"
+
+    class FakeArtifact:
+        model_type = "logistic_regression"
+        target_name = "price_direction"
+        training_count = 12
+        trained_through = date(2026, 6, 12)
+
+    def fake_build_pooled(caches, *, horizon_days, **kwargs):
+        loaded["caches"] = caches
+        loaded["horizon_days"] = horizon_days
+        return ["examples"]
+
+    def fake_train(examples, **kwargs):
+        loaded["train_kwargs"] = kwargs
+        return FakeArtifact()
+
+    def fake_save(artifact, path):
+        loaded["output_path"] = path
+        return path
+
+    monkeypatch.setattr(cli, "build_pooled_examples", fake_build_pooled)
+    monkeypatch.setattr(cli, "train_logistic_artifact", fake_train)
+    monkeypatch.setattr(cli, "save_model_artifact", fake_save)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "train-pooled-artifact",
+            "--feature-cache",
+            "WTI=/tmp/wti.parquet",
+            "--feature-cache",
+            "NATGAS=/tmp/ng.parquet",
+            "--output-path",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert {name for name in loaded["caches"]} == {"WTI", "NATGAS"}
+    assert str(loaded["caches"]["WTI"]) == "/tmp/wti.parquet"
+    assert "across 2 commodities" in result.output
+
+
 def test_predict_daily_command_scores_latest_feature_row_and_loads(monkeypatch, tmp_path) -> None:
     runner = CliRunner()
     loaded = {}

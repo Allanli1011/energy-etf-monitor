@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +29,9 @@ DEFAULT_FEATURE_COLUMNS = (
     "crowding_contracts_to_oi",
     "roll_window_flag",
     "roll_window_crowding_interaction",
+    "news_count",
+    "news_tone_mean",
+    "news_impact_score",
 )
 
 
@@ -102,6 +105,34 @@ def build_supervised_examples(
             )
         )
     return examples
+
+
+def build_pooled_examples(
+    caches: dict[str, Path],
+    *,
+    horizon_days: int,
+    feature_columns: tuple[str, ...] = DEFAULT_FEATURE_COLUMNS,
+) -> list[SupervisedExample]:
+    """Combine per-commodity feature caches into one training set with commodity one-hot dummies.
+
+    Cross-commodity pooling fights the thin per-commodity sample size; the ``commodity__<NAME>``
+    dummies let the model learn commodity-specific offsets. Inference adds the active dummy for the
+    row's commodity, so single-commodity artifacts (which have no dummies) are unaffected.
+    """
+
+    commodities = sorted(caches)
+    pooled: list[SupervisedExample] = []
+    for commodity in commodities:
+        rows = load_feature_cache(caches[commodity])
+        for example in build_supervised_examples(
+            rows, horizon_days=horizon_days, feature_columns=feature_columns
+        ):
+            features = dict(example.features)
+            for other in commodities:
+                features[f"commodity__{other}"] = 1.0 if other == commodity else 0.0
+            pooled.append(replace(example, features=features))
+    pooled.sort(key=lambda example: example.report_date)
+    return pooled
 
 
 def _numeric_features(

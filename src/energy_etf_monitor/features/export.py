@@ -30,6 +30,9 @@ FEATURE_EXPORT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("crowding_contracts_to_oi", "DOUBLE"),
     ("roll_window_flag", "DOUBLE"),
     ("roll_window_crowding_interaction", "DOUBLE"),
+    ("news_count", "DOUBLE"),
+    ("news_tone_mean", "DOUBLE"),
+    ("news_impact_score", "DOUBLE"),
     ("quarantine", "BOOLEAN"),
 )
 

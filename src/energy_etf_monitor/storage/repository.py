@@ -39,6 +39,8 @@ USD_INDEX_SERIES_ID = "DTWEXBGS"
 REAL_YIELD_10Y_SERIES_ID = "DFII10"
 COT_FEATURE_WINDOW = 156
 INVENTORY_SEASONAL_LOOKBACK_YEARS = 5
+NEWS_FEATURE_LOOKBACK_DAYS = 3
+_NEWS_DIRECTION_SIGN = {"Bullish": 1.0, "Bearish": -1.0}
 ROLL_WINDOW_START_BUSINESS_DAY = 5
 ROLL_WINDOW_END_BUSINESS_DAY = 9
 
@@ -384,6 +386,9 @@ class IngestionRepository:
                         roll_window_crowding_interaction=(
                             gated.roll_window_crowding_interaction
                         ),
+                        news_count=gated.news_count,
+                        news_tone_mean=gated.news_tone_mean,
+                        news_impact_score=gated.news_impact_score,
                         quarantine=gated.quarantine,
                     )
                 )
@@ -412,6 +417,9 @@ class IngestionRepository:
                 existing.roll_window_crowding_interaction = (
                     gated.roll_window_crowding_interaction
                 )
+                existing.news_count = gated.news_count
+                existing.news_tone_mean = gated.news_tone_mean
+                existing.news_impact_score = gated.news_impact_score
                 existing.quarantine = gated.quarantine
                 updated += 1
             quarantined += int(gated.quarantine)
@@ -532,6 +540,10 @@ class IngestionRepository:
                 f"No {config.name} feature sources available as of {as_of_datetime.isoformat()}"
             )
 
+        news_count, news_tone_mean, news_impact_score = self._news_aggregates(
+            commodity=config.name, as_of=as_of_datetime
+        )
+
         return DailyFeatureRow(
             source="feature_pipeline",
             commodity=config.name,
@@ -573,6 +585,9 @@ class IngestionRepository:
             ),
             roll_window_flag=roll_window_flag,
             roll_window_crowding_interaction=roll_window_crowding_interaction,
+            news_count=news_count,
+            news_tone_mean=news_tone_mean,
+            news_impact_score=news_impact_score,
         )
 
     def derive_wti_feature_row(self, *, as_of: datetime) -> DailyFeatureRow:
@@ -879,6 +894,38 @@ class IngestionRepository:
             ).all()
         )
 
+    def _news_aggregates(
+        self,
+        *,
+        commodity: str,
+        as_of: datetime,
+        lookback_days: int = NEWS_FEATURE_LOOKBACK_DAYS,
+    ) -> tuple[float | None, float | None, float | None]:
+        """Point-in-time news aggregates: count, mean tone, direction-weighted impact.
+
+        Only articles published within the lookback window AND already known as of the decision
+        time (knowledge_date <= as_of) are aggregated, so this respects the same gate as every
+        other feature. Returns (None, None, None) when no news is available.
+        """
+
+        as_of_datetime = _to_db_datetime(as_of)
+        window_start = as_of_datetime - timedelta(days=lookback_days)
+        rows = self.session.exec(
+            select(NewsArticleRow).where(
+                NewsArticleRow.commodity == commodity,
+                NewsArticleRow.published_at >= window_start,
+                NewsArticleRow.knowledge_date <= as_of_datetime,
+                NewsArticleRow.quarantine.is_(False),
+            )
+        ).all()
+        if not rows:
+            return None, None, None
+        count = float(len(rows))
+        tones = [row.tone for row in rows if row.tone is not None]
+        tone_mean = fmean(tones) if tones else None
+        impact = fmean(_signed_news_impact(row) for row in rows)
+        return count, tone_mean, impact
+
     def _seasonal_time_series_surprise(
         self,
         *,
@@ -1011,6 +1058,11 @@ class IngestionRepository:
             current=record,
             previous=_row_to_fund_metric(previous) if previous is not None else None,
         )
+
+
+def _signed_news_impact(row: NewsArticleRow) -> float:
+    sign = _NEWS_DIRECTION_SIGN.get(row.impact_direction, 0.0)
+    return sign * (row.importance_score / 100.0) * row.confidence
 
 
 def _cot_swap_dealer_net(row: CotPositionRow) -> float | None:
@@ -1255,5 +1307,8 @@ def _row_to_daily_feature(row: DailyFeatureRowModel) -> DailyFeatureRow:
         crowding_contracts_to_oi=row.crowding_contracts_to_oi,
         roll_window_flag=row.roll_window_flag,
         roll_window_crowding_interaction=row.roll_window_crowding_interaction,
+        news_count=row.news_count,
+        news_tone_mean=row.news_tone_mean,
+        news_impact_score=row.news_impact_score,
         quarantine=row.quarantine,
     )
