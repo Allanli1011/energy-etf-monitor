@@ -789,6 +789,164 @@ def test_predict_daily_command_errors_when_no_feature_row(monkeypatch, tmp_path)
     assert "No WTI feature row available" in result.output
 
 
+def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    loaded = {}
+    price_path = tmp_path / "price.json"
+    spread_path = tmp_path / "spread.json"
+    price_path.write_text("{}")
+    spread_path.write_text("{}")
+
+    class FakeFeatureRow:
+        report_date = date(2026, 6, 12)
+
+    feature_row = FakeFeatureRow()
+
+    class FakePrediction:
+        commodity = "WTI"
+        report_date = date(2026, 6, 12)
+        price_up_probability = 0.62
+        spread_up_probability = 0.38
+
+    class FakeIngest:
+        def __init__(self, *, settings):
+            loaded["ingest_settings"] = settings
+
+        def run(self, *, load, trade_date, cot_limit):
+            loaded["ingest_run"] = {"load": load, "trade_date": trade_date, "cot_limit": cot_limit}
+            from energy_etf_monitor.ingestion.runner import BatchIngestionResult
+
+            return BatchIngestionResult()
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def derive_wti_feature_row(self, *, as_of):
+            loaded["derive_as_of"] = as_of
+            return feature_row
+
+        def upsert_daily_feature_rows(self, records):
+            loaded["feature_records"] = records
+            return cli.LoadResult(inserted=1)
+
+        def latest_daily_feature_row(self, *, commodity, as_of):
+            return feature_row
+
+        def upsert_daily_predictions(self, records):
+            loaded["prediction_records"] = records
+            return cli.LoadResult(inserted=1)
+
+        def list_daily_predictions(self, *, commodity):
+            return ["prediction"]
+
+        def list_daily_feature_rows(self, *, commodity):
+            return ["feature"]
+
+    class FakeHealth:
+        outcomes = ["o"]
+        metrics = {"price_model_accuracy": 0.5}
+
+    monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeIngest)
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+    monkeypatch.setattr(cli, "load_artifact", lambda path: path)
+    monkeypatch.setattr(
+        cli,
+        "predict_two_head",
+        lambda **kwargs: FakePrediction(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "build_model_health_report",
+        lambda predictions, feature_rows, *, as_of, commodity: FakeHealth(),
+    )
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "run-nightly",
+            "--price-artifact",
+            str(price_path),
+            "--spread-artifact",
+            str(spread_path),
+            "--trade-date",
+            "2026-06-12",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert loaded["ingest_run"]["load"] is True
+    assert loaded["ingest_run"]["trade_date"] == date(2026, 6, 12)
+    assert loaded["feature_records"] == [feature_row]
+    assert "P(price up)=0.620" in result.output
+    assert "Scored 1 predictions" in result.output
+    assert "Nightly run complete." in result.output
+
+
+def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> None:
+    runner = CliRunner()
+
+    class FakeFeatureRow:
+        report_date = date(2026, 6, 12)
+
+    class FakeIngest:
+        def __init__(self, *, settings):
+            pass
+
+        def run(self, *, load, trade_date, cot_limit):
+            from energy_etf_monitor.ingestion.runner import BatchIngestionResult
+
+            return BatchIngestionResult()
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def derive_wti_feature_row(self, *, as_of):
+            return FakeFeatureRow()
+
+        def upsert_daily_feature_rows(self, records):
+            return cli.LoadResult(inserted=1)
+
+        def list_daily_predictions(self, *, commodity):
+            return []
+
+        def list_daily_feature_rows(self, *, commodity):
+            return []
+
+    class FakeHealth:
+        outcomes = []
+        metrics = {}
+
+    monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeIngest)
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+    monkeypatch.setattr(
+        cli,
+        "build_model_health_report",
+        lambda predictions, feature_rows, *, as_of, commodity: FakeHealth(),
+    )
+
+    result = runner.invoke(cli.app, ["run-nightly"])
+
+    assert result.exit_code == 0
+    assert "Skipping prediction" in result.output
+    assert "Nightly run complete." in result.output
+
+
 def test_model_health_command_scores_and_reports(monkeypatch, tmp_path) -> None:
     runner = CliRunner()
     loaded = {}

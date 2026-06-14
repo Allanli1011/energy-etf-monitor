@@ -310,6 +310,80 @@ def predict_daily(
 
 
 @app.command()
+def run_nightly(
+    price_artifact: str | None = typer.Option(None, "--price-artifact"),
+    spread_artifact: str | None = typer.Option(None, "--spread-artifact"),
+    commodity: str = typer.Option("WTI", "--commodity"),
+    trade_date: str | None = typer.Option(None, "--trade-date"),
+    cot_limit: int = typer.Option(5000, "--cot-limit"),
+) -> None:
+    """Full nightly pipeline: ingest -> features -> (predict) -> model health.
+
+    Prediction is skipped (not an error) when model artifacts are absent, so the job stays green
+    while history accumulates before the first models are trained. Genuine failures (ingest, DB)
+    propagate a non-zero exit so the scheduler can alert.
+    """
+
+    settings = Settings()
+    curve_date = date.fromisoformat(trade_date) if trade_date else date.today()
+    predicted_at = datetime.now(UTC)
+
+    typer.echo("[1/4] Ingesting Phase 0 sources...")
+    ingest = PhaseZeroIngestionRunner(settings=settings).run(
+        load=True, trade_date=curve_date, cot_limit=cot_limit
+    )
+    _echo_batch_result(ingest)
+
+    with IngestionRepository.from_settings(settings) as repository:
+        typer.echo("[2/4] Building feature row...")
+        feature_row = repository.derive_wti_feature_row(as_of=predicted_at)
+        repository.upsert_daily_feature_rows([feature_row])
+        typer.echo(f"Feature row for {feature_row.report_date} ready.")
+
+        typer.echo("[3/4] Predicting...")
+        if _both_artifacts_exist(price_artifact, spread_artifact):
+            latest = repository.latest_daily_feature_row(commodity=commodity, as_of=predicted_at)
+            if latest is None:
+                raise typer.BadParameter(
+                    f"No {commodity} feature row available as of {predicted_at.isoformat()}."
+                )
+            prediction = predict_two_head(
+                feature_row=latest,
+                price_artifact=load_artifact(Path(price_artifact)),
+                spread_artifact=load_artifact(Path(spread_artifact)),
+                predicted_at=predicted_at,
+            )
+            repository.upsert_daily_predictions([prediction])
+            typer.echo(
+                f"{prediction.commodity} {prediction.report_date}: "
+                f"P(price up)={prediction.price_up_probability:.3f} "
+                f"P(spread up)={prediction.spread_up_probability:.3f}"
+            )
+        else:
+            typer.echo("Skipping prediction: model artifacts not provided or not found.")
+
+        typer.echo("[4/4] Model health...")
+        predictions = repository.list_daily_predictions(commodity=commodity)
+        feature_rows = repository.list_daily_feature_rows(commodity=commodity)
+    health = build_model_health_report(
+        predictions, feature_rows, as_of=predicted_at, commodity=commodity
+    )
+    typer.echo(f"Scored {len(health.outcomes)} predictions with realized outcomes.")
+    if health.metrics:
+        typer.echo(_format_metrics(health.metrics))
+    typer.echo("Nightly run complete.")
+
+
+def _both_artifacts_exist(price_artifact: str | None, spread_artifact: str | None) -> bool:
+    return (
+        price_artifact is not None
+        and spread_artifact is not None
+        and Path(price_artifact).exists()
+        and Path(spread_artifact).exists()
+    )
+
+
+@app.command()
 def model_health(
     commodity: str = typer.Option("WTI", "--commodity"),
     as_of: str | None = typer.Option(None, "--as-of"),
