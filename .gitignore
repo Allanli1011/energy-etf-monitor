@@ -16,6 +16,7 @@ data/processed/
 # Secrets / config
 .env
 .env.*
+!.env.example
 secrets.*
 *.key
 
@@ -25,6 +26,8 @@ mlruns/
 *.joblib
 
 # Tooling
+.coverage
+htmlcov/
 .ipynb_checkpoints/
 .pytest_cache/
 .ruff_cache/

@@ -16,7 +16,7 @@ free data sources
    -> PostgreSQL  (report_date + knowledge_date)     [+ thin quality gate / quarantine]
    -> feature engineering                            [carry, COT index, inventory surprise, crowding]
    -> { price-direction model | roll-spread model }  [LightGBM, two heads]
-   -> Streamlit dashboard + rule-based alerts
+   -> Streamlit dashboard + news-impact lane + rule-based alerts
 ```
 
 ### 1. Ingestion
@@ -35,12 +35,20 @@ free data sources
   freshness checks against the release calendar (EIA Wed/Thu, COT Fri), range/plausibility checks
   (no negative OI, no >50% day-over-day AUM jump, no COT date gaps). Failures get a `quarantine`
   flag so bad batches never silently enter feature builds.
+- The initial implementation stores `knowledge_date` as UTC-naive at the database boundary so
+  SQLite tests and Postgres deployments use one comparable representation of first-known time.
 - Parquet files in `data/processed/` read via DuckDB are the analytical cache so backtests never
   hit the live DB.
 
 ### 3. Feature engineering
 - pandas / polars + DuckDB, run nightly after ingestion. ~15–25 features per commodity per day,
   all publication-lag-adjusted. See [05-prediction-methodology.md](05-prediction-methodology.md).
+- The initial WTI feature builder writes `daily_feature_rows` from an explicit decision timestamp
+  and now includes curve spreads/curvature, front-month returns, carry changes, COT
+  net/z-score/index, seasonal inventory surprise, macro levels, USO crowding, and roll-window
+  interaction features.
+- `export-wti-feature-cache` writes persisted feature rows to Parquet in `data/processed/`, using
+  DuckDB as the local cache writer/reader for modeling and backtests.
 
 ### 4. Modeling
 - **LightGBM**, two heads: `price_direction` and `spread_direction`. scikit-learn
@@ -48,10 +56,24 @@ free data sources
 - Pooled cross-commodity training (commodity-id as a categorical) to fight thin sample size.
 - Expanding-window walk-forward, monthly retrain, evaluated across the 2008 / 2014–16 / 2020 /
   2021–22 regimes.
+- The first implementation slice reads the Parquet feature cache, builds forward price/spread
+  direction targets, and evaluates naive-persistence plus lightweight logistic baselines with
+  expanding walk-forward windows. It can also persist the current logistic baseline as a JSON model
+  artifact for daily inference.
+- **Purged walk-forward (look-ahead fix):** each example carries `target_report_date` (the date
+  its label becomes known, horizon trading days ahead). The walk-forward trainer purges any
+  training example whose `target_report_date >= the decision date`, so labels that were not yet
+  realized never leak into training (this also fixes the naive-persistence baseline). A regression
+  test locks the embargo.
 
 ### 5. Inference
-- `predict_daily.py` scores the latest feature row per commodity, writes to a `predictions` table
-  (direction prob, point estimate, top-3 SHAP features, model_version).
+- `predict-daily` loads the latest point-in-time feature row (`knowledge_date <= as_of`), scores it
+  with the price and spread logistic artifacts, and writes a row to the `daily_predictions` table:
+  `price_up_probability`, `spread_up_probability`, a naive-persistence reference for each head,
+  both `*_model_version` stamps, and `*_top_drivers` (the linear log-odds contributions
+  `weight * value / scale` ranked by magnitude — an exact local explanation for the logistic
+  model, no SHAP dependency). The command refuses to predict when `predicted_at` precedes the
+  feature row's `knowledge_date`, and refuses mismatched/ swapped model heads.
 
 ### 6. Orchestration
 - macOS `launchd` plist (or a single local Prefect agent if you want retries/UI) running one bash
@@ -60,7 +82,12 @@ free data sources
 
 ### 7. Dashboard + alerts
 - **Streamlit + Plotly**, reading Postgres directly. Pages: Today's Calls / Curve Explorer /
-  Positioning (COT) / Inventory / **Model Health** (rolling Brier vs naive baseline; flags decay).
+  Positioning (COT) / Inventory / **Latest Market-Moving News** / **Model Health** (rolling Brier
+  vs naive baseline; flags decay).
+- The Phase 7 news-impact lane shows latest energy-futures-moving headlines with affected
+  commodity, catalyst type, importance, impact direction, confidence, short rationale, and source
+  link. Article-level labels are display/alerting data first; only aggregated point-in-time news
+  features graduate into models after walk-forward validation.
 - Alerts via free Slack webhook or `ntfy.sh`: pipeline failure, the `USO`-2020 crowding alert
   (AUM/OI above threshold), and the T-10 roll-window-approach notice — all rule-based, independent
   of model output.

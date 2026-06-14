@@ -14,7 +14,7 @@ those are proven, the other commodities are largely config-driven expansion.
 | 4 | 3 | `predict_daily.py` + flat-file prediction log + single-page Streamlit (Today's Call + Curve Explorer + Model Health), **WTI only** |
 | 5 | 3–4 | Wire up nightly orchestration (launchd / Prefect agent) + failure alerting (Slack / ntfy) |
 | 6 | 4–6 | Horizontal expansion: Brent (`BNO`), NatGas (`UNG`/`UNL`), RBOB (`UGA`) via configs + per-issuer PCF parsers; retrain pooled multi-commodity models |
-| 7 | 6+ | Add GDELT sentiment; broad funds (`PDBC` / `USCI`); monthly retrain cadence; decay-triggered review process |
+| 7 | 6+ | Add the News Impact Monitor: a dashboard news lane showing latest energy-futures-moving news, per-article importance, impact direction, confidence, and rationale; then broad funds (`PDBC` / `USCI`), monthly retrain cadence, and decay-triggered review process |
 
 ## Definition of done for the MVP (end of Phase 4)
 
@@ -26,11 +26,154 @@ A working WTI loop that, each night, produces:
 all built on point-in-time-correct data (dual timestamps, COT lagged 3 business days, holdings
 T+1).
 
+## Phase 1 implementation notes
+
+The first USO PCF slice is implemented as a configurable CSV/text parser and loader:
+- `fetch-uso-pcf --url ...` saves the raw PCF payload, parses fund-level NAV / shares outstanding /
+  total net assets, and extracts holdings.
+- `--load` writes `fund_daily_metrics` and `fund_holdings` idempotently.
+- Implied flow is derived at load time when the previous fund row exists:
+  `(shares_outstanding[t] - shares_outstanding[t-1]) * NAV[t]`.
+- `derive-uso-crowding --report-date ...` joins loaded USO holdings with matching CME CL settlement
+  open interest and writes `fund_crowding_metrics`, including both `AUM / OI notional` and
+  `held contracts / OI contracts` for the held contract months.
+
+Still required before Phase 1 is complete: pin the current issuer PCF URL or discovery flow,
+validate against live USCF files, add historical backfill tooling, and make the crowding feature
+available to the Phase 2 feature pipeline.
+
+## Phase 2 implementation notes
+
+The first WTI feature-pipeline slice is implemented as an as-of builder:
+- `build-wti-features --as-of ...` derives and loads one `daily_feature_rows` record for the
+  requested decision timestamp.
+- `build-wti-feature-range --start-date ... --end-date ... --as-of-time ...` derives and loads a
+  range of daily WTI feature rows for backfill-style generation.
+- `export-wti-feature-cache --output-path ...` exports persisted feature rows to a DuckDB-readable
+  Parquet cache under `data/processed/`.
+- `backfill-wti-feature-cache --start-date ... --end-date ... --as-of-time ... --output-path ...`
+  runs range build, idempotent load, and Parquet export in one command.
+- Current fields include CL front-month settle, M1/M2 carry, M1/M2, M2/M3 and M3/M6 spreads,
+  M1/M2/M3 curvature, front-month 1-day return, carry 1-day change, COT swap-dealer
+  net/open-interest/z-score/index, EIA crude inventory, seasonal inventory surprise, FRED USD
+  index, FRED 10-year real yield, USO AUM/OI crowding, roll-window flag, and roll-window x crowding
+  interaction.
+- The repository uses `knowledge_date <= as_of` and `report_date <= as_of.date()` for every source,
+  with tests proving that a COT row published after the decision timestamp is excluded even when its
+  report date is earlier.
+- Historical transforms use only rows that were already known as of the requested decision
+  timestamp: COT windows are limited by `knowledge_date <= as_of`, and the inventory surprise uses
+  same-ISO-week historical observations that were already published.
+- Release-lag fixtures cover concrete EIA and COT publication cutoffs: a June 2026 EIA row is
+  excluded before its 14:30 UTC release timestamp and included after it; the June 9, 2026 COT row is
+  excluded before its June 12, 2026 19:30 UTC release timestamp and included after it.
+- Feature-row `knowledge_date` is the max first-known time of the source rows actually used.
+
+Still required before Phase 2 is complete: validate the generated cache shape on real WTI history,
+pin live USO PCF discovery/backfill inputs, and decide whether to add broader Cushing-specific
+inventory features before handing the cache to Phase 3 model training.
+
+## Phase 3 implementation notes
+
+The first modeling slice is implemented for WTI baseline evaluation:
+- `evaluate-wti-baselines --feature-cache ... --horizon-days ... --min-train-size ...` reads the
+  DuckDB/Parquet feature cache, creates forward price-direction or spread-direction targets, and
+  evaluates walk-forward baselines.
+- `--report-dir ...` exports prediction-level CSV and metrics JSON files for baseline review.
+- `train-wti-logistic-artifact --feature-cache ... --output-path ...` trains the current reusable
+  logistic baseline on the full feature cache and saves a JSON model artifact.
+- Target generation is horizon-based: price target is whether future front-month settle is above
+  the current settle; spread target is whether future M1/M2 spread is above the current spread.
+- The baseline evaluator uses **purged** expanding windows: each prediction trains only on examples
+  whose label was already realized before the decision date (see the correction below).
+- Current baselines are naive persistence and a lightweight logistic-regression baseline implemented
+  without external ML dependencies.
+- Reports include overall metrics plus regime-sliced metrics for `gfc_2008`,
+  `oil_crash_2014_2016`, `covid_2020`, `inflation_2021_2022`, and `other`.
+
+### Phase 3 correction — walk-forward label leakage (fixed)
+
+The first walk-forward slice trained on every example whose `report_date` preceded the decision
+date — but each example's label is realized `horizon_days` later, so the most recent `horizon_days`
+training examples carried labels from *after* the decision date. That is look-ahead leakage and it
+inflates backtest metrics (it also corrupted the naive-persistence baseline). Fixed by tagging each
+`SupervisedExample` with `target_report_date` and purging (embargoing) any training example whose
+`target_report_date >= the decision date`. A dedicated regression test
+(`test_walk_forward_purges_examples_whose_label_realizes_on_or_after_decision`) locks the behavior.
+
+Still required before Phase 3 is complete: add scikit-learn / LightGBM training, monthly
+walk-forward retraining, LightGBM artifact persistence, richer model diagnostics, and comparison
+reports that decide whether the learned models beat the naive baseline robustly enough to feed
+Phase 4.
+
+## Phase 4 implementation notes
+
+The first daily-inference slice is implemented:
+- `predict-daily --price-artifact ... --spread-artifact ... [--as-of ...] [--load]` loads the
+  latest point-in-time WTI feature row (`report_date <= as_of` and `knowledge_date <= as_of`,
+  non-quarantined), scores both logistic heads, prints the call, and (with `--load`) writes a row
+  to the `daily_predictions` table.
+- Each prediction stores `price_up_probability`, `spread_up_probability`, a naive-persistence
+  reference per head (sign of the latest 1-day move), both `*_model_version` stamps, and
+  `*_top_drivers` (ranked linear log-odds contributions `weight * value / scale`).
+- Point-in-time guards: inference refuses when `predicted_at` precedes the feature row's
+  `knowledge_date`, and refuses swapped or horizon-mismatched model heads. Out-of-range
+  probabilities are quarantined by the quality gate.
+
+Still required before Phase 4 is complete: LightGBM heads, a Streamlit dashboard (Today's Call /
+Curve Explorer / Model Health) reading `daily_predictions`, and a flat-file prediction log for
+decay tracking.
+
+## Phase 7: News Impact Monitor
+
+Turn the current GDELT sentiment placeholder into a first-class monitoring-panel module that
+answers: "what just happened, how important is it, and which way does it likely push energy
+futures?"
+
+Deliverables:
+- **Connectors:** add idempotent GDELT 2.0 DOC API and Marketaux connectors, with optional RSS/API
+  adapters for official sources such as EIA, OPEC, IEA, CME notices, exchange status pages, and
+  major energy-news publishers. Save every raw payload to `data/raw/news/<date>/` before
+  normalization.
+- **Storage:** add `news_articles` and `news_impacts` tables with `published_at`, `fetched_at`,
+  `knowledge_date`, `source`, `url_hash`, `title`, `summary`, `commodity`, `contract_family`,
+  `catalyst_type`, `importance_score`, `impact_direction`, `confidence`, `rationale`, and
+  `quarantine` fields.
+- **Deduplication:** collapse syndicated articles and near-identical headlines by `url_hash`,
+  canonical URL, source, title fingerprint, and publish-time window so the panel shows events, not
+  repeated copies.
+- **Relevance filters:** start with WTI, Brent, natural gas, RBOB, and heating oil; prioritize
+  catalysts such as OPEC/OPEC+, EIA/API inventory, refinery outages, weather, LNG flows,
+  geopolitics, sanctions, shipping disruptions, USD, rates, and recession/demand shocks.
+- **Impact scoring:** label every retained article with importance (`High` / `Medium` / `Low` or
+  0-100), direction (`Bullish` / `Bearish` / `Neutral` / `Mixed`), confidence, and a one-sentence
+  explanation. Score outright price and roll/calendar-spread impact separately when the catalyst
+  has different implications for flat price vs curve shape.
+- **Dashboard:** add a "Latest Market-Moving News" lane to the monitoring panel, visible on
+  Today's Calls above or beside the model cards. Each article row must show headline, source,
+  publish time, affected commodity, catalyst type, importance badge, direction badge, confidence,
+  short rationale, and source link. Filters: commodity, time window, importance, impact direction,
+  source, and catalyst type.
+- **Panel behavior:** sort by `importance_score`, then recency; pin high-importance items for the
+  current trading session; mark stale items; show separate chips for `Price Impact` and
+  `Spread Impact` when they differ.
+- **Alerts:** send optional Slack / `ntfy.sh` alerts only for high-importance news with a clear
+  direction and sufficient confidence.
+- **Modeling boundary:** keep article-level news labels as display/explanation/alerting data first.
+  Only promote aggregated features (article count, tone, direction-weighted importance) into the
+  price/spread models after enough point-in-time history exists and walk-forward tests show value
+  over the naive baseline.
+- **Acceptance tests:** include fixture-based connector tests, deduplication tests, point-in-time
+  `knowledge_date` tests, and classifier fixtures that verify importance/direction labels for known
+  examples such as inventory surprises, OPEC supply changes, refinery outages, and geopolitical
+  disruptions.
+
 ## What to defer (and why)
 
 - **Brent / NatGas / RBOB / broad funds** — architecture is identical; mostly ticker configs +
   per-issuer PCF parsers. Add after the WTI loop is proven.
-- **GDELT sentiment** — nice-to-have; add after the core loop works.
+- **News-derived model features** — defer until the News Impact Monitor has enough point-in-time
+  history to test honestly. The Phase 7 panel can still be useful before news becomes a model input.
 - **MLflow** — start with a flat pickle + CSV prediction log; add the file-store once the loop is
   stable.
 - **Hosted Postgres** — start with local Docker (or SQLite if Docker is friction).
