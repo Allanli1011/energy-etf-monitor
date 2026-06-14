@@ -57,8 +57,8 @@ def test_phase_zero_runner_fetches_configured_sources_without_loading(tmp_path) 
             return [_observation(series_id)]
 
     class FakeCftc:
-        def fetch_wti_positions(self, limit: int):
-            calls["cot"].append(limit)
+        def fetch_positions(self, *, commodity: str, contract_market_code: str, limit: int):
+            calls["cot"].append((commodity, contract_market_code, limit))
             return [_cot_position()]
 
     class FakeCme:
@@ -78,7 +78,7 @@ def test_phase_zero_runner_fetches_configured_sources_without_loading(tmp_path) 
 
     assert calls["eia"] == list(PHASE0_EIA_SERIES)
     assert calls["fred"] == list(PHASE0_FRED_SERIES)
-    assert calls["cot"] == [25]
+    assert calls["cot"] == [("WTI", "067651", 25)]
     assert calls["cme"] == [("CL", date(2026, 6, 12))]
     assert result.fetched_total == len(PHASE0_EIA_SERIES) + len(PHASE0_FRED_SERIES) + 2
     assert result.loaded_total == 0
@@ -96,7 +96,7 @@ def test_phase_zero_runner_loads_records_with_matching_repository_methods(tmp_pa
             return [_observation(series_id)]
 
     class FakeCftc:
-        def fetch_wti_positions(self, limit: int):
+        def fetch_positions(self, *, commodity: str, contract_market_code: str, limit: int):
             return [_cot_position()]
 
     class FakeCme:
@@ -139,4 +139,46 @@ def test_phase_zero_runner_loads_records_with_matching_repository_methods(tmp_pa
         "settlements": 1,
     }
     assert result.loaded_total == result.fetched_total
+
+
+def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
+    from energy_etf_monitor.commodities import NATGAS, WTI
+
+    calls: dict[str, list] = {"eia": [], "cot": [], "cme": []}
+
+    class FakeEia:
+        def fetch_series(self, series_id: str):
+            calls["eia"].append(series_id)
+            return [_observation(series_id)]
+
+    class FakeFred:
+        def fetch_observations(self, series_id: str):
+            return [_observation(series_id)]
+
+    class FakeCftc:
+        def fetch_positions(self, *, commodity: str, contract_market_code: str, limit: int):
+            calls["cot"].append((commodity, contract_market_code))
+            return [_cot_position()]
+
+    class FakeCme:
+        def fetch_curve(self, *, product_code: str, trade_date: date):
+            calls["cme"].append(product_code)
+            return [_settlement()]
+
+    runner = PhaseZeroIngestionRunner(
+        settings=Settings(data_dir=tmp_path),
+        eia_connector=FakeEia(),
+        fred_connector=FakeFred(),
+        cftc_connector=FakeCftc(),
+        cme_provider=FakeCme(),
+        commodities=(WTI, NATGAS),
+    )
+
+    runner.run(load=False, trade_date=date(2026, 6, 12), cot_limit=10)
+
+    # COT fetched per commodity with each contract code; curve per product code.
+    assert calls["cot"] == [("WTI", "067651"), ("NATGAS", "023651")]
+    assert calls["cme"] == ["CL", "NG"]
+    # NatGas storage series is folded into the EIA series list.
+    assert "NG.NW2_EPG0_SWO_R48_BCF.W" in calls["eia"]
 

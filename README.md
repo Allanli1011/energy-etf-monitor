@@ -218,6 +218,16 @@ Launch the dashboard (Today's Call / Price & Curve / Positioning / Inventory / M
 uv run --extra dashboard streamlit run src/energy_etf_monitor/dashboard/app.py
 ```
 
+Other commodities (NatGas, RBOB) run through the same commands via `--commodity` — e.g. ingest the
+whole registry, then build/export/train/predict for one of them:
+
+```bash
+uv run energy-etf-monitor ingest-phase0 --load            # all registered commodities
+uv run energy-etf-monitor build-features --commodity NATGAS --as-of 2026-06-12T18:00:00+00:00
+uv run energy-etf-monitor export-feature-cache --commodity NATGAS \
+  --output-path data/processed/natgas_daily_features.parquet
+```
+
 Run the whole nightly pipeline locally (ingest → features → predict → model health). Prediction is
 skipped if the model artifacts are not present yet:
 
@@ -270,6 +280,8 @@ against realized outcomes (model-vs-naive accuracy/Brier, overall, per regime, a
 Streamlit dashboard (`--extra dashboard`) with a tested pure data layer, and LightGBM heads
 (`--extra gbm`) sharing one interface with the logistic baseline. **Phase 4 is complete** (MVP
 definition of done met). Phase 5 orchestration is in place: a `run-nightly` command and GitHub
-Actions workflows (CI on push/PR; a scheduled nightly run with email-on-failure). Next: Phase 6
-expansion to Brent / NatGas / RBOB. Target stack remains Python 3.12+, PostgreSQL 16, LightGBM,
+Actions workflows (CI on push/PR; a scheduled nightly run with email-on-failure). Phase 6
+generalized the pipeline to a `CommodityConfig` registry (WTI, NatGas, RBOB) so ingestion, feature
+building, prediction, model health, and the dashboard all work per-commodity via `--commodity`
+(Brent pending an ICE curve source). Target stack remains Python 3.12+, PostgreSQL 16, LightGBM,
 Streamlit — all free / self-hostable.

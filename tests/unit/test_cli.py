@@ -141,8 +141,9 @@ def test_ingest_phase0_command_runs_batch_runner(monkeypatch) -> None:
     called = {}
 
     class FakeRunner:
-        def __init__(self, settings) -> None:
+        def __init__(self, settings, commodities=None) -> None:
             called["settings"] = settings
+            called["commodities"] = commodities
 
         def run(self, *, load: bool, trade_date: date, cot_limit: int):
             called["args"] = (load, trade_date, cot_limit)
@@ -167,8 +168,73 @@ def test_ingest_phase0_command_runs_batch_runner(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert called["args"] == (True, date(2026, 6, 12), 25)
+    # No --commodity given -> defaults to the full registry.
+    assert {config.name for config in called["commodities"]} == {"WTI", "NATGAS", "RBOB"}
     assert "Fetched 3 rows across 2 tasks" in result.output
     assert "Loaded 1 rows" in result.output
+
+
+def test_ingest_phase0_command_accepts_explicit_commodities(monkeypatch) -> None:
+    called = {}
+
+    class FakeRunner:
+        def __init__(self, settings, commodities=None) -> None:
+            called["commodities"] = commodities
+
+        def run(self, *, load: bool, trade_date: date, cot_limit: int):
+            return cli.BatchIngestionResult(runs=[])
+
+    monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeRunner)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["ingest-phase0", "--commodity", "NATGAS", "--commodity", "RBOB"],
+    )
+
+    assert result.exit_code == 0
+    assert [config.name for config in called["commodities"]] == ["NATGAS", "RBOB"]
+
+
+def test_build_features_command_builds_for_requested_commodity(monkeypatch) -> None:
+    loaded = {}
+
+    class FakeFeatureRow:
+        report_date = date(2026, 6, 12)
+
+    feature_row = FakeFeatureRow()
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def derive_feature_row(self, *, config, as_of):
+            loaded["config_name"] = config.name
+            loaded["as_of"] = as_of
+            return feature_row
+
+        def upsert_daily_feature_rows(self, records):
+            loaded["records"] = records
+            return cli.LoadResult(inserted=1)
+
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["build-features", "--commodity", "NATGAS", "--as-of", "2026-06-12T18:00:00+00:00"],
+    )
+
+    assert result.exit_code == 0
+    assert loaded["config_name"] == "NATGAS"
+    assert loaded["as_of"] == datetime(2026, 6, 12, 18, tzinfo=UTC)
+    assert loaded["records"] == [feature_row]
+    assert "Built NATGAS feature row for 2026-06-12" in result.output
 
 
 def test_fetch_uso_pcf_command_loads_metric_and_holdings(monkeypatch) -> None:
@@ -809,7 +875,7 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
         spread_up_probability = 0.38
 
     class FakeIngest:
-        def __init__(self, *, settings):
+        def __init__(self, *, settings, commodities=None):
             loaded["ingest_settings"] = settings
 
         def run(self, *, load, trade_date, cot_limit):
@@ -829,8 +895,9 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
         def __exit__(self, exc_type, exc, traceback) -> None:
             return None
 
-        def derive_wti_feature_row(self, *, as_of):
+        def derive_feature_row(self, *, config, as_of):
             loaded["derive_as_of"] = as_of
+            loaded["derive_config"] = config.name
             return feature_row
 
         def upsert_daily_feature_rows(self, records):
@@ -897,7 +964,7 @@ def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> 
         report_date = date(2026, 6, 12)
 
     class FakeIngest:
-        def __init__(self, *, settings):
+        def __init__(self, *, settings, commodities=None):
             pass
 
         def run(self, *, load, trade_date, cot_limit):
@@ -916,7 +983,7 @@ def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> 
         def __exit__(self, exc_type, exc, traceback) -> None:
             return None
 
-        def derive_wti_feature_row(self, *, as_of):
+        def derive_feature_row(self, *, config, as_of):
             return FakeFeatureRow()
 
         def upsert_daily_feature_rows(self, records):

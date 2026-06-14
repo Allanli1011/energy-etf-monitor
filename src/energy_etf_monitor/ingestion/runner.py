@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Protocol
 
+from energy_etf_monitor.commodities import WTI, CommodityConfig
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.ingestion.cftc import CftcCotConnector
@@ -24,7 +25,6 @@ PHASE0_FRED_SERIES = (
     "DCOILWTICO",
     "GASREGW",
 )
-PHASE0_CME_PRODUCTS = ("CL",)
 
 
 class EiaConnectorLike(Protocol):
@@ -36,7 +36,13 @@ class FredConnectorLike(Protocol):
 
 
 class CftcConnectorLike(Protocol):
-    def fetch_wti_positions(self, limit: int) -> list[CotPosition]: ...
+    def fetch_positions(
+        self,
+        *,
+        commodity: str,
+        contract_market_code: str,
+        limit: int,
+    ) -> list[CotPosition]: ...
 
 
 class CmeProviderLike(Protocol):
@@ -86,9 +92,9 @@ class PhaseZeroIngestionRunner:
             [Settings],
             IngestionRepository,
         ] = IngestionRepository.from_settings,
+        commodities: Sequence[CommodityConfig] = (WTI,),
         eia_series: Sequence[str] = PHASE0_EIA_SERIES,
         fred_series: Sequence[str] = PHASE0_FRED_SERIES,
-        cme_products: Sequence[str] = PHASE0_CME_PRODUCTS,
     ) -> None:
         raw_store = RawPayloadStore(settings.raw_data_dir)
         self.settings = settings
@@ -106,9 +112,18 @@ class PhaseZeroIngestionRunner:
         )
         self.cme_provider = cme_provider or CmeSettlementCurveProvider(raw_store=raw_store)
         self.repository_factory = repository_factory
-        self.eia_series = tuple(eia_series)
+        self.commodities = tuple(commodities)
+        # Fold each commodity's inventory series into the EIA list (order-stable, de-duplicated),
+        # and derive the CME curve products straight from the commodity set.
+        self.eia_series = tuple(
+            dict.fromkeys(
+                [*eia_series, *(config.inventory_series_id for config in self.commodities)]
+            )
+        )
         self.fred_series = tuple(fred_series)
-        self.cme_products = tuple(cme_products)
+        self.cme_products = tuple(
+            dict.fromkeys(config.product_code for config in self.commodities)
+        )
 
     def run(
         self,
@@ -146,8 +161,15 @@ class PhaseZeroIngestionRunner:
         for series_id in self.fred_series:
             rows = self.fred_connector.fetch_observations(series_id)
             runs.append(SourceRunResult(source="fred", name=series_id, fetched=len(rows)))
-        cot_rows = self.cftc_connector.fetch_wti_positions(limit=cot_limit)
-        runs.append(SourceRunResult(source="cftc", name="WTI COT", fetched=len(cot_rows)))
+        for config in self.commodities:
+            cot_rows = self.cftc_connector.fetch_positions(
+                commodity=config.name,
+                contract_market_code=config.cot_contract_market_code,
+                limit=cot_limit,
+            )
+            runs.append(
+                SourceRunResult(source="cftc", name=f"{config.name} COT", fetched=len(cot_rows))
+            )
         for product_code in self.cme_products:
             rows = self.cme_provider.fetch_curve(product_code=product_code, trade_date=trade_date)
             runs.append(
@@ -186,15 +208,20 @@ class PhaseZeroIngestionRunner:
                     load_result=repository.upsert_time_series(rows),
                 )
             )
-        cot_rows = self.cftc_connector.fetch_wti_positions(limit=cot_limit)
-        runs.append(
-            SourceRunResult(
-                source="cftc",
-                name="WTI COT",
-                fetched=len(cot_rows),
-                load_result=repository.upsert_cot_positions(cot_rows),
+        for config in self.commodities:
+            cot_rows = self.cftc_connector.fetch_positions(
+                commodity=config.name,
+                contract_market_code=config.cot_contract_market_code,
+                limit=cot_limit,
             )
-        )
+            runs.append(
+                SourceRunResult(
+                    source="cftc",
+                    name=f"{config.name} COT",
+                    fetched=len(cot_rows),
+                    load_result=repository.upsert_cot_positions(cot_rows),
+                )
+            )
         for product_code in self.cme_products:
             rows = self.cme_provider.fetch_curve(product_code=product_code, trade_date=trade_date)
             runs.append(

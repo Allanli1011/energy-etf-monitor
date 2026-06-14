@@ -1,8 +1,10 @@
 from datetime import UTC, date, datetime, time
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
+from energy_etf_monitor.commodities import COMMODITIES, CommodityConfig, commodity_config
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.features.export import export_daily_features_to_parquet
 from energy_etf_monitor.ingestion.base import RawPayloadStore
@@ -44,16 +46,26 @@ def ingest_phase0(
     load: bool = typer.Option(False, "--load"),
     trade_date: str | None = None,
     cot_limit: int = 5000,
+    commodity: Annotated[list[str] | None, typer.Option("--commodity")] = None,
 ) -> None:
-    """Run the Phase 0 WTI ingestion batch."""
+    """Run the Phase 0 ingestion batch for one or more commodities (default: all)."""
 
     curve_date = date.fromisoformat(trade_date) if trade_date else date.today()
-    result = PhaseZeroIngestionRunner(settings=Settings()).run(
+    result = PhaseZeroIngestionRunner(
+        settings=Settings(),
+        commodities=_resolve_commodities(commodity),
+    ).run(
         load=load,
         trade_date=curve_date,
         cot_limit=cot_limit,
     )
     _echo_batch_result(result)
+
+
+def _resolve_commodities(names: list[str] | None) -> list[CommodityConfig]:
+    if not names:
+        return list(COMMODITIES.values())
+    return [commodity_config(name) for name in names]
 
 
 @app.command()
@@ -129,6 +141,70 @@ def build_wti_feature_range(
         result = repository.upsert_daily_feature_rows(rows)
     typer.echo(f"Built {len(rows)} WTI feature rows.")
     _echo_load_result(result)
+
+
+@app.command()
+def build_features(
+    commodity: str = typer.Option("WTI", "--commodity"),
+    as_of: str = typer.Option(..., "--as-of"),
+) -> None:
+    """Build and load one point-in-time feature row for any registered commodity."""
+
+    config = commodity_config(commodity)
+    as_of_datetime = datetime.fromisoformat(as_of)
+    with IngestionRepository.from_settings(Settings()) as repository:
+        feature_row = repository.derive_feature_row(config=config, as_of=as_of_datetime)
+        result = repository.upsert_daily_feature_rows([feature_row])
+    typer.echo(f"Built {config.name} feature row for {feature_row.report_date}.")
+    _echo_load_result(result)
+
+
+@app.command()
+def build_feature_range(
+    commodity: str = typer.Option("WTI", "--commodity"),
+    start_date: str = typer.Option(..., "--start-date"),
+    end_date: str = typer.Option(..., "--end-date"),
+    as_of_time: str = typer.Option("18:00:00+00:00", "--as-of-time"),
+) -> None:
+    """Build and load point-in-time feature rows for a commodity over a date range."""
+
+    config = commodity_config(commodity)
+    with IngestionRepository.from_settings(Settings()) as repository:
+        rows = repository.derive_feature_rows(
+            config=config,
+            start_date=date.fromisoformat(start_date),
+            end_date=date.fromisoformat(end_date),
+            as_of_time=time.fromisoformat(as_of_time),
+        )
+        result = repository.upsert_daily_feature_rows(rows)
+    typer.echo(f"Built {len(rows)} {config.name} feature rows.")
+    _echo_load_result(result)
+
+
+@app.command()
+def export_feature_cache(
+    commodity: str = typer.Option("WTI", "--commodity"),
+    output_path: str | None = typer.Option(None, "--output-path"),
+    start_date: str | None = typer.Option(None, "--start-date"),
+    end_date: str | None = typer.Option(None, "--end-date"),
+) -> None:
+    """Export a commodity's persisted feature rows to a Parquet cache for modeling."""
+
+    settings = Settings()
+    config = commodity_config(commodity)
+    destination = (
+        Path(output_path)
+        if output_path
+        else settings.processed_data_dir / f"{config.name.lower()}_daily_features.parquet"
+    )
+    with IngestionRepository.from_settings(settings) as repository:
+        rows = repository.list_daily_feature_rows(
+            commodity=config.name,
+            start_date=date.fromisoformat(start_date) if start_date else None,
+            end_date=date.fromisoformat(end_date) if end_date else None,
+        )
+    exported_path = export_daily_features_to_parquet(rows, destination)
+    typer.echo(f"Exported {len(rows)} {config.name} feature rows to {exported_path}.")
 
 
 @app.command()
@@ -329,14 +405,17 @@ def run_nightly(
     predicted_at = datetime.now(UTC)
 
     typer.echo("[1/4] Ingesting Phase 0 sources...")
-    ingest = PhaseZeroIngestionRunner(settings=settings).run(
-        load=True, trade_date=curve_date, cot_limit=cot_limit
-    )
+    ingest = PhaseZeroIngestionRunner(
+        settings=settings,
+        commodities=list(COMMODITIES.values()),
+    ).run(load=True, trade_date=curve_date, cot_limit=cot_limit)
     _echo_batch_result(ingest)
 
     with IngestionRepository.from_settings(settings) as repository:
         typer.echo("[2/4] Building feature row...")
-        feature_row = repository.derive_wti_feature_row(as_of=predicted_at)
+        feature_row = repository.derive_feature_row(
+            config=commodity_config(commodity), as_of=predicted_at
+        )
         repository.upsert_daily_feature_rows([feature_row])
         typer.echo(f"Feature row for {feature_row.report_date} ready.")
 

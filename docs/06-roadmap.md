@@ -165,6 +165,28 @@ Orchestration runs on GitHub Actions (cloud cron) rather than a local scheduler:
 Still pending for Phase 5: an automated monthly retrain workflow (daily runs currently predict with
 committed artifacts; retraining is manual).
 
+## Phase 6 implementation notes
+
+Multi-commodity expansion (WTI, NatGas, RBOB) on free CME + EIA data:
+- `commodities.py` holds a `CommodityConfig` registry; the feature builder
+  (`derive_feature_row(config, ...)`) and CFTC connector (`fetch_positions`) are now
+  commodity-parameterized, with WTI wrappers kept for back-compat.
+- `PhaseZeroIngestionRunner` takes a `commodities` set and ingests each one's COT (by contract
+  code) and curve (by product code), folding each commodity's EIA inventory series into the fetch
+  list. `ingest-phase0 --commodity ...` (default: all) and the nightly job ingest the full set.
+- Generic CLI: `build-features`, `build-feature-range`, `export-feature-cache` all take
+  `--commodity`; `predict-daily` and `model-health` already did. So a non-WTI commodity goes
+  end-to-end: ingest → build → export cache → train artifacts → predict → health. The dashboard
+  commodity selector is populated from the registry.
+
+Caveats / still pending:
+- COT contract-market codes for NatGas (023651) and RBOB (111659) are best-known values and should
+  be verified against the CFTC API; a wrong code yields empty COT (soft failure), not a crash.
+- Brent is ICE-listed and its curve is paywalled, so it is excluded from the registry until an ICE
+  curve provider exists.
+- Cross-commodity pooled model training (one model over all commodities, per the design) is not yet
+  wired — each commodity currently trains its own per-cache artifacts.
+
 ## Phase 7: News Impact Monitor
 
 Turn the current GDELT sentiment placeholder into a first-class monitoring-panel module that

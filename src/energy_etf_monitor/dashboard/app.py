@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 import streamlit as st
 
+from energy_etf_monitor.commodities import COMMODITIES
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.dashboard.data import (
     INVENTORY_COLUMNS,
@@ -49,7 +50,7 @@ def main() -> None:
         "Always read calls against the naive baseline and the model-health page."
     )
 
-    commodity = st.sidebar.selectbox("Commodity", ["WTI"], index=0)
+    commodity = st.sidebar.selectbox("Commodity", list(COMMODITIES), index=0)
     as_of = datetime.now(UTC)
     predictions, feature_rows, health = _load(commodity, as_of)
 
