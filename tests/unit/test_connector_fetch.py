@@ -89,6 +89,37 @@ def test_cftc_fetch_wti_positions_uses_app_token_and_saves_raw_payload(tmp_path:
     assert list((tmp_path / "cftc").glob("*/*.json"))
 
 
+def test_cftc_fetch_positions_filters_by_contract_code_and_tags_commodity(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["$where"] == "cftc_contract_market_code='023651'"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "report_date_as_yyyy_mm_dd": "2026-06-09T00:00:00.000",
+                    "market_and_exchange_names": "NATURAL GAS",
+                    "cftc_contract_market_code": "023651",
+                    "open_interest_all": "100",
+                }
+            ],
+        )
+
+    connector = CftcCotConnector(
+        raw_store=RawPayloadStore(tmp_path),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    rows = connector.fetch_positions(
+        commodity="NATGAS",
+        contract_market_code="023651",
+        limit=100,
+    )
+
+    assert len(rows) == 1
+    assert rows[0].commodity == "NATGAS"
+    assert list((tmp_path / "cftc").glob("*/*natgas_cot*.json"))
+
+
 def test_cme_provider_fetches_supported_curve_and_saves_raw_payload(tmp_path: Path) -> None:
     html = """
     <table>

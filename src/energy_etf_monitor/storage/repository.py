@@ -5,6 +5,7 @@ from statistics import fmean, pstdev
 
 from sqlmodel import Session, select
 
+from energy_etf_monitor.commodities import WTI, CommodityConfig
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.features.crowding import derive_fund_crowding_metric
 from energy_etf_monitor.ingestion.uscf import derive_implied_flow
@@ -452,9 +453,16 @@ class IngestionRepository:
             product_code=product_code,
         )
 
-    def derive_wti_feature_row(self, *, as_of: datetime) -> DailyFeatureRow:
+    def derive_feature_row(
+        self,
+        *,
+        config: CommodityConfig,
+        as_of: datetime,
+    ) -> DailyFeatureRow:
         as_of_datetime = _to_db_datetime(as_of)
-        settlements = self._latest_futures_curve(product_code="CL", as_of=as_of_datetime)
+        settlements = self._latest_futures_curve(
+            product_code=config.product_code, as_of=as_of_datetime
+        )
         front_months = sorted(settlements, key=lambda row: row.contract_month)
         m1 = front_months[0] if len(front_months) >= 1 else None
         m2 = front_months[1] if len(front_months) >= 2 else None
@@ -462,7 +470,7 @@ class IngestionRepository:
         m6 = _contract_at_month_offset(front_months, m1, month_offset=5)
         cl_carry_m1_m2 = _carry(m1, m2)
         previous_curve = self._previous_futures_curve(
-            product_code="CL",
+            product_code=config.product_code,
             as_of=as_of_datetime,
             before_report_date=front_months[0].report_date if front_months else None,
         )
@@ -474,7 +482,7 @@ class IngestionRepository:
         )
 
         cot_rows = self._available_cot_positions(
-            commodity="WTI",
+            commodity=config.name,
             as_of=as_of_datetime,
             window=COT_FEATURE_WINDOW,
         )
@@ -485,7 +493,7 @@ class IngestionRepository:
             if value is not None
         ]
         inventory = self._latest_time_series_observation(
-            series_id=WTI_INVENTORY_SERIES_ID,
+            series_id=config.inventory_series_id,
             as_of=as_of_datetime,
         )
         usd_index = self._latest_time_series_observation(
@@ -496,11 +504,15 @@ class IngestionRepository:
             series_id=REAL_YIELD_10Y_SERIES_ID,
             as_of=as_of_datetime,
         )
-        crowding = self._latest_fund_crowding_metric(
-            fund_ticker="USO",
-            commodity="WTI",
-            product_code="CL",
-            as_of=as_of_datetime,
+        crowding = (
+            self._latest_fund_crowding_metric(
+                fund_ticker=config.crowding_fund_ticker,
+                commodity=config.name,
+                product_code=config.crowding_product_code or config.product_code,
+                as_of=as_of_datetime,
+            )
+            if config.crowding_fund_ticker is not None
+            else None
         )
         roll_window_flag = _roll_window_flag(as_of_datetime.date())
         roll_window_crowding_interaction = (
@@ -508,20 +520,19 @@ class IngestionRepository:
             if crowding is not None
             else None
         )
-        source_rows = (
-            front_months
-            + [
-                row
-                for row in (cot, inventory, usd_index, real_yield, crowding)
-                if row is not None
-            ]
-        )
+        source_rows = front_months + [
+            row
+            for row in (cot, inventory, usd_index, real_yield, crowding)
+            if row is not None
+        ]
         if not source_rows:
-            raise ValueError(f"No WTI feature sources available as of {as_of_datetime.isoformat()}")
+            raise ValueError(
+                f"No {config.name} feature sources available as of {as_of_datetime.isoformat()}"
+            )
 
         return DailyFeatureRow(
             source="feature_pipeline",
-            commodity="WTI",
+            commodity=config.name,
             report_date=as_of_datetime.date(),
             knowledge_date=max(row.knowledge_date for row in source_rows),
             cl_front_month_settlement=m1.settlement_price if m1 is not None else None,
@@ -562,9 +573,13 @@ class IngestionRepository:
             roll_window_crowding_interaction=roll_window_crowding_interaction,
         )
 
-    def derive_wti_feature_rows(
+    def derive_wti_feature_row(self, *, as_of: datetime) -> DailyFeatureRow:
+        return self.derive_feature_row(config=WTI, as_of=as_of)
+
+    def derive_feature_rows(
         self,
         *,
+        config: CommodityConfig,
         start_date: date,
         end_date: date,
         as_of_time: time,
@@ -583,12 +598,29 @@ class IngestionRepository:
                 current_date += timedelta(days=1)
                 continue
             rows.append(
-                self.derive_wti_feature_row(
+                self.derive_feature_row(
+                    config=config,
                     as_of=datetime.combine(current_date, as_of_time),
                 )
             )
             current_date += timedelta(days=1)
         return rows
+
+    def derive_wti_feature_rows(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        as_of_time: time,
+        skip_weekends: bool = True,
+    ) -> list[DailyFeatureRow]:
+        return self.derive_feature_rows(
+            config=WTI,
+            start_date=start_date,
+            end_date=end_date,
+            as_of_time=as_of_time,
+            skip_weekends=skip_weekends,
+        )
 
     def list_daily_feature_rows(
         self,

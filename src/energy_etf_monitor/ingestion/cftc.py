@@ -34,12 +34,18 @@ class CftcCotConnector:
         self.client = client
         self.dataset_id = dataset_id
 
-    def fetch_wti_positions(self, limit: int = 5000) -> list[CotPosition]:
+    def fetch_positions(
+        self,
+        *,
+        commodity: str,
+        contract_market_code: str,
+        limit: int = 5000,
+    ) -> list[CotPosition]:
         fetched_at = datetime.now(tz=NY_TZ)
         params = {
             "$limit": str(limit),
             "$order": "report_date_as_yyyy_mm_dd DESC",
-            "$where": "cftc_contract_market_code='067651'",
+            "$where": f"cftc_contract_market_code='{contract_market_code}'",
         }
         headers = {"X-App-Token": self.app_token} if self.app_token else {}
 
@@ -62,9 +68,16 @@ class CftcCotConnector:
                 source=self.source,
                 payload=payload,
                 fetched_at=fetched_at,
-                label="wti_cot",
+                label=f"{commodity.lower()}_cot",
             )
-        return self.normalize_positions(payload=payload, commodity="WTI")
+        return self.normalize_positions(payload=payload, commodity=commodity)
+
+    def fetch_wti_positions(self, limit: int = 5000) -> list[CotPosition]:
+        return self.fetch_positions(
+            commodity="WTI",
+            contract_market_code="067651",
+            limit=limit,
+        )
 
     @staticmethod
     def normalize_positions(
