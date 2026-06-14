@@ -28,6 +28,9 @@ dashboard = [
 gbm = [
     "lightgbm>=4.5.0",
 ]
+llm = [
+    "anthropic>=0.40.0",
+]
 
 [project.scripts]
 energy-etf-monitor = "energy_etf_monitor.cli:app"

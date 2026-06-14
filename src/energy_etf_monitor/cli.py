@@ -13,6 +13,8 @@ from energy_etf_monitor.ingestion.cme import CmeSettlementCurveProvider
 from energy_etf_monitor.ingestion.eia import EiaSeriesConnector
 from energy_etf_monitor.ingestion.fred import FredSeriesConnector
 from energy_etf_monitor.ingestion.gdelt import GdeltDocConnector
+from energy_etf_monitor.ingestion.marketaux import MarketauxConnector
+from energy_etf_monitor.ingestion.rss import DEFAULT_FEEDS, RssNewsConnector
 from energy_etf_monitor.ingestion.runner import (
     BatchIngestionResult,
     PhaseZeroIngestionRunner,
@@ -31,6 +33,7 @@ from energy_etf_monitor.modeling.reports import export_baseline_evaluation_repor
 from energy_etf_monitor.news.alerts import alert_worthy
 from energy_etf_monitor.news.classify import RuleBasedClassifier, is_relevant
 from energy_etf_monitor.news.dedup import deduplicate_articles
+from energy_etf_monitor.news.notify import post_news_alerts
 from energy_etf_monitor.storage.db import create_db_and_tables
 from energy_etf_monitor.storage.repository import IngestionRepository, LoadResult
 
@@ -422,6 +425,7 @@ def run_nightly(
             repository.upsert_news_articles(news)
         alerts = alert_worthy(news)
         typer.echo(f"Loaded {len(news)} news events ({len(alerts)} high-impact).")
+        _post_alerts(settings, alerts)
     except Exception as exc:  # news is auxiliary — never fail the run on it
         typer.echo(f"News ingestion skipped: {exc}")
 
@@ -526,17 +530,69 @@ def ingest_news(
             f"  ALERT [{round(article.importance_score)}/{article.impact_direction}] "
             f"{article.commodity}: {article.title}"
         )
+    _post_alerts(settings, alerts)
     if load:
         with IngestionRepository.from_settings(settings) as repository:
             _echo_load_result(repository.upsert_news_articles(classified))
 
 
 def _collect_news(settings: Settings, *, timespan: str, max_records: int):
-    connector = GdeltDocConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
-    raw = connector.fetch_articles(timespan=timespan, max_records=max_records)
+    raw_store = RawPayloadStore(settings.raw_data_dir)
+    raw: list = []
+    raw += _safe_fetch(
+        lambda: GdeltDocConnector(raw_store=raw_store).fetch_articles(
+            timespan=timespan, max_records=max_records
+        )
+    )
+    if settings.marketaux_api_key:
+        raw += _safe_fetch(
+            lambda: MarketauxConnector(
+                api_key=settings.marketaux_api_key, raw_store=raw_store
+            ).fetch_articles()
+        )
+    for source, feed_url in DEFAULT_FEEDS:
+        raw += _safe_fetch(
+            lambda feed_url=feed_url, source=source: RssNewsConnector(
+                feed_url=feed_url, source=source, raw_store=raw_store
+            ).fetch_articles()
+        )
     relevant = deduplicate_articles([article for article in raw if is_relevant(article)])
-    classifier = RuleBasedClassifier()
+    classifier = _news_classifier(settings)
     return [classifier.classify(article) for article in relevant]
+
+
+def _safe_fetch(fetcher):
+    # Multi-source news ingestion is resilient: one bad source must not drop the others.
+    try:
+        return list(fetcher())
+    except Exception as exc:
+        typer.echo(f"  news source error skipped: {exc}")
+        return []
+
+
+def _news_classifier(settings: Settings):
+    if settings.news_classifier == "llm" and settings.anthropic_api_key:
+        from energy_etf_monitor.news.llm_classify import LlmNewsClassifier
+
+        return LlmNewsClassifier(
+            api_key=settings.anthropic_api_key,
+            model=settings.llm_model,
+        )
+    return RuleBasedClassifier()
+
+
+def _post_alerts(settings: Settings, alerts: list) -> None:
+    if not alerts or not settings.alert_webhook_url:
+        return
+    try:
+        sent = post_news_alerts(
+            alerts,
+            webhook_url=settings.alert_webhook_url,
+            kind=settings.alert_webhook_kind,
+        )
+        typer.echo(f"Posted {sent} alert(s) to {settings.alert_webhook_kind} webhook.")
+    except Exception as exc:  # alerting is best-effort
+        typer.echo(f"Alert webhook post skipped: {exc}")
 
 
 @app.command()

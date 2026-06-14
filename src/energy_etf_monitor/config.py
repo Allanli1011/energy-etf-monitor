@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     fred_api_key: str | None = None
     cftc_app_token: str | None = None
     marketaux_api_key: str | None = None
+    anthropic_api_key: str | None = None
+
+    news_classifier: str = "rule"  # "rule" or "llm"
+    llm_model: str = "claude-haiku-4-5-20251001"
+    alert_webhook_url: str | None = None
+    alert_webhook_kind: str = "slack"  # "slack" or "ntfy"
 
     @computed_field
     @property

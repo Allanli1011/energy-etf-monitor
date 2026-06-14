@@ -13,9 +13,26 @@ NY_TZ = ZoneInfo("America/New_York")
 
 
 def cot_knowledge_datetime(report_date: date) -> datetime:
-    """COT Tuesday positions are first public on Friday at 15:30 ET."""
+    """COT positions (Tuesday close) are first public on Friday at 15:30 ET.
 
-    return datetime.combine(report_date + timedelta(days=3), time(15, 30), tzinfo=NY_TZ)
+    Uses 3 business days rather than 3 calendar days so the release date is computed correctly when
+    the report date lands near a weekend. Federal holidays can still slip the real release by an
+    extra day; a holiday-aware calendar is a future refinement.
+    """
+
+    return datetime.combine(
+        _add_business_days(report_date, 3), time(15, 30), tzinfo=NY_TZ
+    )
+
+
+def _add_business_days(start: date, business_days: int) -> date:
+    current = start
+    remaining = business_days
+    while remaining > 0:
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            remaining -= 1
+    return current
 
 
 class CftcCotConnector:
