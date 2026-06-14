@@ -155,6 +155,38 @@ class FundCrowdingMetricRow(SQLModel, table=True):
     quarantine: bool = Field(default=False, index=True)
 
 
+class NewsArticleRow(SQLModel, table=True):
+    __tablename__ = "news_articles"
+    __table_args__ = (
+        UniqueConstraint(
+            "source",
+            "url_hash",
+            name="uq_news_articles_natural_key",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(index=True)
+    report_date: date = Field(index=True)
+    knowledge_date: datetime = Field(index=True)
+    published_at: datetime = Field(index=True)
+    url: str
+    url_hash: str = Field(index=True)
+    title: str
+    canonical_url: str | None = Field(default=None, index=True)
+    summary: str | None = None
+    tone: float | None = None
+    commodity: str | None = Field(default=None, index=True)
+    contract_family: str | None = None
+    catalyst_type: str | None = Field(default=None, index=True)
+    importance_score: float = Field(default=0.0, index=True)
+    impact_direction: str = Field(default="Unknown", index=True)
+    spread_impact_direction: str | None = None
+    confidence: float = 0.0
+    rationale: str | None = None
+    quarantine: bool = Field(default=False, index=True)
+
+
 class DailyPredictionRow(SQLModel, table=True):
     __tablename__ = "daily_predictions"
     __table_args__ = (

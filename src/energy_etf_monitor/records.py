@@ -85,6 +85,31 @@ class DailyPrediction(PointInTimeRecord):
     spread_naive_probability: float | None = None
 
 
+class NewsArticle(PointInTimeRecord):
+    """A market-moving news item plus its (optional) impact classification.
+
+    ``report_date`` is the publication date and ``knowledge_date`` is when we fetched it, so the
+    same point-in-time gate as every other source applies. Impact fields default to an unscored
+    state until a classifier fills them in.
+    """
+
+    published_at: datetime
+    url: str
+    url_hash: str
+    title: str
+    canonical_url: str | None = None
+    summary: str | None = None
+    tone: float | None = None
+    commodity: str | None = None
+    contract_family: str | None = None
+    catalyst_type: str | None = None
+    importance_score: float = 0.0
+    impact_direction: str = "Unknown"
+    spread_impact_direction: str | None = None
+    confidence: float = 0.0
+    rationale: str | None = None
+
+
 class DailyFeatureRow(PointInTimeRecord):
     commodity: str
     cl_front_month_settlement: float | None = None

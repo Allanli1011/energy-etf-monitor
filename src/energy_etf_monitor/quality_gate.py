@@ -9,8 +9,13 @@ from energy_etf_monitor.records import (
     FundDailyMetric,
     FundHolding,
     FuturesSettlement,
+    NewsArticle,
     PointInTimeRecord,
     TimeSeriesObservation,
+)
+
+VALID_IMPACT_DIRECTIONS = frozenset(
+    {"Bullish", "Bearish", "Neutral", "Mixed", "Unknown"}
 )
 
 
@@ -61,6 +66,19 @@ def inspect_record_quality(record: PointInTimeRecord) -> QualityGateResult:
             reasons.append("nonpositive_open_interest_notional")
         if record.matched_contract_months <= 0:
             reasons.append("no_matched_contract_months")
+    elif isinstance(record, NewsArticle):
+        if not 0.0 <= record.importance_score <= 100.0:
+            reasons.append("out_of_range_importance_score")
+        _add_probability_reason(reasons, "confidence", record.confidence)
+        if record.impact_direction not in VALID_IMPACT_DIRECTIONS:
+            reasons.append("invalid_impact_direction")
+        if (
+            record.spread_impact_direction is not None
+            and record.spread_impact_direction not in VALID_IMPACT_DIRECTIONS
+        ):
+            reasons.append("invalid_spread_impact_direction")
+        if not record.url_hash:
+            reasons.append("missing_url_hash")
     elif isinstance(record, DailyPrediction):
         _add_probability_reason(reasons, "price_up_probability", record.price_up_probability)
         _add_probability_reason(reasons, "spread_up_probability", record.spread_up_probability)

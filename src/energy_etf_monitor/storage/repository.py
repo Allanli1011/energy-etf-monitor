@@ -18,6 +18,7 @@ from energy_etf_monitor.records import (
     FundDailyMetric,
     FundHolding,
     FuturesSettlement,
+    NewsArticle,
     TimeSeriesObservation,
 )
 from energy_etf_monitor.storage.db import create_engine_from_settings
@@ -29,6 +30,7 @@ from energy_etf_monitor.storage.models import (
     FundDailyMetricRow,
     FundHoldingRow,
     FuturesSettlementRow,
+    NewsArticleRow,
     TimeSeriesObservationRow,
 )
 
@@ -715,6 +717,87 @@ class IngestionRepository:
         self.session.commit()
         return LoadResult(inserted=inserted, updated=updated, quarantined=quarantined)
 
+    def upsert_news_articles(self, records: Sequence[NewsArticle]) -> LoadResult:
+        inserted = updated = quarantined = 0
+        for record in records:
+            gated = apply_quality_gate(record)
+            existing = self.session.exec(
+                select(NewsArticleRow).where(
+                    NewsArticleRow.source == gated.source,
+                    NewsArticleRow.url_hash == gated.url_hash,
+                )
+            ).one_or_none()
+            if existing is None:
+                self.session.add(
+                    NewsArticleRow(
+                        source=gated.source,
+                        report_date=gated.report_date,
+                        knowledge_date=_to_db_datetime(gated.knowledge_date),
+                        published_at=_to_db_datetime(gated.published_at),
+                        url=gated.url,
+                        url_hash=gated.url_hash,
+                        title=gated.title,
+                        canonical_url=gated.canonical_url,
+                        summary=gated.summary,
+                        tone=gated.tone,
+                        commodity=gated.commodity,
+                        contract_family=gated.contract_family,
+                        catalyst_type=gated.catalyst_type,
+                        importance_score=gated.importance_score,
+                        impact_direction=gated.impact_direction,
+                        spread_impact_direction=gated.spread_impact_direction,
+                        confidence=gated.confidence,
+                        rationale=gated.rationale,
+                        quarantine=gated.quarantine,
+                    )
+                )
+                inserted += 1
+            else:
+                existing.knowledge_date = _to_db_datetime(gated.knowledge_date)
+                existing.published_at = _to_db_datetime(gated.published_at)
+                existing.title = gated.title
+                existing.canonical_url = gated.canonical_url
+                existing.summary = gated.summary
+                existing.tone = gated.tone
+                existing.commodity = gated.commodity
+                existing.contract_family = gated.contract_family
+                existing.catalyst_type = gated.catalyst_type
+                existing.importance_score = gated.importance_score
+                existing.impact_direction = gated.impact_direction
+                existing.spread_impact_direction = gated.spread_impact_direction
+                existing.confidence = gated.confidence
+                existing.rationale = gated.rationale
+                existing.quarantine = gated.quarantine
+                updated += 1
+            quarantined += int(gated.quarantine)
+        self.session.commit()
+        return LoadResult(inserted=inserted, updated=updated, quarantined=quarantined)
+
+    def list_news_articles(
+        self,
+        *,
+        as_of: datetime | None = None,
+        commodity: str | None = None,
+        min_importance: float = 0.0,
+        limit: int | None = None,
+    ) -> list[NewsArticle]:
+        statement = select(NewsArticleRow).where(
+            NewsArticleRow.quarantine.is_(False),
+            NewsArticleRow.importance_score >= min_importance,
+        )
+        if as_of is not None:
+            as_of_datetime = _to_db_datetime(as_of)
+            statement = statement.where(NewsArticleRow.knowledge_date <= as_of_datetime)
+        if commodity is not None:
+            statement = statement.where(NewsArticleRow.commodity == commodity)
+        statement = statement.order_by(
+            NewsArticleRow.importance_score.desc(),
+            NewsArticleRow.published_at.desc(),
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
+        return [_row_to_news_article(row) for row in self.session.exec(statement).all()]
+
     def list_daily_predictions(
         self,
         *,
@@ -1098,6 +1181,30 @@ def _row_to_futures_settlement(row: FuturesSettlementRow) -> FuturesSettlement:
         contract_month=row.contract_month,
         settlement_price=row.settlement_price,
         open_interest=row.open_interest,
+        quarantine=row.quarantine,
+    )
+
+
+def _row_to_news_article(row: NewsArticleRow) -> NewsArticle:
+    return NewsArticle(
+        source=row.source,
+        report_date=row.report_date,
+        knowledge_date=row.knowledge_date,
+        published_at=row.published_at,
+        url=row.url,
+        url_hash=row.url_hash,
+        title=row.title,
+        canonical_url=row.canonical_url,
+        summary=row.summary,
+        tone=row.tone,
+        commodity=row.commodity,
+        contract_family=row.contract_family,
+        catalyst_type=row.catalyst_type,
+        importance_score=row.importance_score,
+        impact_direction=row.impact_direction,
+        spread_impact_direction=row.spread_impact_direction,
+        confidence=row.confidence,
+        rationale=row.rationale,
         quarantine=row.quarantine,
     )
 
