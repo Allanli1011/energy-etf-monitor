@@ -212,7 +212,14 @@ uv run energy-etf-monitor model-health \
   --report-dir data/processed/model_health
 ```
 
-Launch the dashboard (Today's Call / Price & Curve / Positioning / Inventory / Model Health):
+Ingest, classify, and load market-moving news (free GDELT, no key):
+
+```bash
+uv run energy-etf-monitor ingest-news --timespan 1d --load
+```
+
+Launch the dashboard (Latest News / Today's Call / Price & Curve / Positioning / Inventory /
+Model Health):
 
 ```bash
 uv run --extra dashboard streamlit run src/energy_etf_monitor/dashboard/app.py
@@ -283,5 +290,8 @@ definition of done met). Phase 5 orchestration is in place: a `run-nightly` comm
 Actions workflows (CI on push/PR; a scheduled nightly run with email-on-failure). Phase 6
 generalized the pipeline to a `CommodityConfig` registry (WTI, NatGas, RBOB) so ingestion, feature
 building, prediction, model health, and the dashboard all work per-commodity via `--commodity`
-(Brent pending an ICE curve source). Target stack remains Python 3.12+, PostgreSQL 16, LightGBM,
-Streamlit — all free / self-hostable.
+(Brent pending an ICE curve source). Phase 7 adds the News Impact Monitor: a free GDELT connector,
+a transparent rule-based impact classifier (commodity / catalyst / direction / importance /
+confidence), URL+title deduplication, a dashboard news lane, and high-impact alert selection;
+`ingest-news` and the nightly job populate it. Target stack remains Python 3.12+, PostgreSQL 16,
+LightGBM, Streamlit — all free / self-hostable.

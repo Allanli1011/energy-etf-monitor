@@ -4,8 +4,9 @@ from energy_etf_monitor.dashboard.data import (
     PRICE_AND_CURVE_COLUMNS,
     feature_time_series,
     latest_call,
+    news_panel_rows,
 )
-from energy_etf_monitor.records import DailyFeatureRow, DailyPrediction
+from energy_etf_monitor.records import DailyFeatureRow, DailyPrediction, NewsArticle
 
 
 def _prediction(report_date: date, *, knowledge_hour: int, quarantine: bool = False, **overrides):
@@ -79,3 +80,39 @@ def test_feature_time_series_sorts_and_aligns_columns() -> None:
     assert series.series["cl_m1_m2_spread"] == [-2.0, -1.0, 1.0]
     # a column absent from the rows is filled with None, aligned to dates
     assert series.series["cl_m2_m3_spread"] == [None, None, None]
+
+
+def _news(*, importance: float, hour: int, title: str) -> NewsArticle:
+    published = datetime(2026, 6, 12, hour, tzinfo=UTC)
+    return NewsArticle(
+        source="gdelt",
+        report_date=published.date(),
+        knowledge_date=published,
+        published_at=published,
+        url="https://a.com/x",
+        url_hash=f"hash-{title}",
+        title=title,
+        commodity="WTI",
+        catalyst_type="opec",
+        impact_direction="Bullish",
+        importance_score=importance,
+        confidence=0.6,
+        rationale="opec catalyst",
+    )
+
+
+def test_news_panel_rows_sorts_by_importance_then_recency_and_projects_fields() -> None:
+    rows = news_panel_rows(
+        [
+            _news(importance=50, hour=9, title="a"),
+            _news(importance=90, hour=8, title="b"),
+            _news(importance=90, hour=10, title="c"),
+        ],
+        limit=2,
+    )
+
+    # importance desc, then recency desc -> 90@10:00 (c), 90@08:00 (b); the 50 is dropped by limit
+    assert [row["headline"] for row in rows] == ["c", "b"]
+    assert rows[0]["importance"] == 90
+    assert rows[0]["direction"] == "Bullish"
+    assert rows[0]["commodity"] == "WTI"

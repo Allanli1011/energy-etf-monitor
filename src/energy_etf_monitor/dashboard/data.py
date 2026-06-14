@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from energy_etf_monitor.modeling.predict import FeatureContribution, parse_top_drivers
-from energy_etf_monitor.records import DailyFeatureRow, DailyPrediction
+from energy_etf_monitor.records import DailyFeatureRow, DailyPrediction, NewsArticle
 
 
 @dataclass(frozen=True)
@@ -82,6 +82,38 @@ INVENTORY_COLUMNS = (
     "inventory_value",
     "inventory_seasonal_surprise",
 )
+
+
+def news_panel_rows(
+    articles: Sequence[NewsArticle],
+    *,
+    limit: int | None = None,
+) -> list[dict[str, object]]:
+    """Project news articles into display rows, sorted by importance then recency."""
+
+    ordered = sorted(
+        articles,
+        key=lambda article: (article.importance_score, article.published_at),
+        reverse=True,
+    )
+    if limit is not None:
+        ordered = ordered[:limit]
+    return [
+        {
+            "published": article.published_at.isoformat(timespec="minutes"),
+            "headline": article.title,
+            "source": article.source,
+            "commodity": article.commodity or "—",
+            "catalyst": article.catalyst_type or "—",
+            "importance": round(article.importance_score),
+            "direction": article.impact_direction,
+            "spread_direction": article.spread_impact_direction or "—",
+            "confidence": round(article.confidence, 2),
+            "rationale": article.rationale or "",
+            "url": article.url,
+        }
+        for article in ordered
+    ]
 
 
 def _optional_float(value: float | None) -> float | None:

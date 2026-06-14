@@ -187,7 +187,29 @@ Caveats / still pending:
 - Cross-commodity pooled model training (one model over all commodities, per the design) is not yet
   wired — each commodity currently trains its own per-cache artifacts.
 
-## Phase 7: News Impact Monitor
+## Phase 7 implementation notes (status: core shipped)
+
+Implemented:
+- **Connector:** `GdeltDocConnector` (free DOC 2.0 API, no key) → unclassified `NewsArticle`
+  records; raw payloads saved under `data/raw/news/`.
+- **Storage + dedup:** single `news_articles` table (article + impact, point-in-time);
+  `deduplicate_articles` collapses by canonical URL and windowed title fingerprint.
+- **Classifier:** transparent rule-based `RuleBasedClassifier` behind a `NewsClassifier` interface
+  — commodity, catalyst, price + spread direction, importance (0–100), confidence, rationale; with
+  word-boundary matching. An LLM classifier can drop in behind the same interface.
+- **CLI + nightly:** `ingest-news` (fetch → relevance filter → dedup → classify → load) and a
+  best-effort news step in `run-nightly` (failures never break the run).
+- **Dashboard + alerts:** "Latest market-moving news" lane (sorted by importance then recency) and
+  `alert_worthy` selection (high importance + clear direction + confidence).
+
+Deferred (interface is ready for them):
+- Marketaux + official RSS/API adapters (EIA/OPEC/IEA/exchange notices).
+- An LLM-backed classifier implementation (cost/keys); the rule-based one is the free default.
+- Live Slack/`ntfy` posting of alerts (currently surfaced in CLI output / dashboard).
+- Promoting aggregated news features (count, tone, direction-weighted importance) into the
+  price/spread models — only after enough point-in-time history and walk-forward validation.
+
+## Phase 7: News Impact Monitor (original spec)
 
 Turn the current GDELT sentiment placeholder into a first-class monitoring-panel module that
 answers: "what just happened, how important is it, and which way does it likely push energy

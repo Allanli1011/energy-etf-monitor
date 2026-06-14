@@ -911,6 +911,10 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
             loaded["prediction_records"] = records
             return cli.LoadResult(inserted=1)
 
+        def upsert_news_articles(self, records):
+            loaded["news_records"] = records
+            return cli.LoadResult(inserted=len(records))
+
         def list_daily_predictions(self, *, commodity):
             return ["prediction"]
 
@@ -923,6 +927,9 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeIngest)
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+    monkeypatch.setattr(
+        cli, "_collect_news", lambda settings, *, timespan, max_records: []
+    )
     monkeypatch.setattr(cli, "load_artifact", lambda path: path)
     monkeypatch.setattr(
         cli,
@@ -989,6 +996,9 @@ def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> 
         def upsert_daily_feature_rows(self, records):
             return cli.LoadResult(inserted=1)
 
+        def upsert_news_articles(self, records):
+            return cli.LoadResult(inserted=len(records))
+
         def list_daily_predictions(self, *, commodity):
             return []
 
@@ -1002,6 +1012,9 @@ def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> 
     monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeIngest)
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
     monkeypatch.setattr(
+        cli, "_collect_news", lambda settings, *, timespan, max_records: []
+    )
+    monkeypatch.setattr(
         cli,
         "build_model_health_report",
         lambda predictions, feature_rows, *, as_of, commodity: FakeHealth(),
@@ -1012,6 +1025,57 @@ def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> 
     assert result.exit_code == 0
     assert "Skipping prediction" in result.output
     assert "Nightly run complete." in result.output
+
+
+def test_ingest_news_command_reports_alerts_and_loads(monkeypatch) -> None:
+    from energy_etf_monitor.records import NewsArticle
+
+    runner = CliRunner()
+    loaded = {}
+
+    def _news(importance: float, direction: str, suffix: str) -> NewsArticle:
+        published = datetime(2026, 6, 12, 9, tzinfo=UTC)
+        return NewsArticle(
+            source="gdelt",
+            report_date=published.date(),
+            knowledge_date=published,
+            published_at=published,
+            url=f"https://a.com/{suffix}",
+            url_hash=f"hash-{suffix}",
+            title=f"headline {suffix}",
+            commodity="WTI",
+            impact_direction=direction,
+            importance_score=importance,
+            confidence=0.6,
+        )
+
+    articles = [_news(85, "Bullish", "1"), _news(20, "Neutral", "2")]
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def upsert_news_articles(self, records):
+            loaded["records"] = records
+            return cli.LoadResult(inserted=len(records))
+
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+    monkeypatch.setattr(
+        cli, "_collect_news", lambda settings, *, timespan, max_records: articles
+    )
+
+    result = runner.invoke(cli.app, ["ingest-news", "--load"])
+
+    assert result.exit_code == 0
+    assert "Kept 2 classified events; 1 high-impact alerts." in result.output
+    assert loaded["records"] == articles
 
 
 def test_model_health_command_scores_and_reports(monkeypatch, tmp_path) -> None:

@@ -12,6 +12,7 @@ from energy_etf_monitor.ingestion.cftc import CftcCotConnector
 from energy_etf_monitor.ingestion.cme import CmeSettlementCurveProvider
 from energy_etf_monitor.ingestion.eia import EiaSeriesConnector
 from energy_etf_monitor.ingestion.fred import FredSeriesConnector
+from energy_etf_monitor.ingestion.gdelt import GdeltDocConnector
 from energy_etf_monitor.ingestion.runner import (
     BatchIngestionResult,
     PhaseZeroIngestionRunner,
@@ -27,6 +28,9 @@ from energy_etf_monitor.modeling.monitoring import (
 )
 from energy_etf_monitor.modeling.predict import predict_two_head
 from energy_etf_monitor.modeling.reports import export_baseline_evaluation_report
+from energy_etf_monitor.news.alerts import alert_worthy
+from energy_etf_monitor.news.classify import RuleBasedClassifier, is_relevant
+from energy_etf_monitor.news.dedup import deduplicate_articles
 from energy_etf_monitor.storage.db import create_db_and_tables
 from energy_etf_monitor.storage.repository import IngestionRepository, LoadResult
 
@@ -404,22 +408,32 @@ def run_nightly(
     curve_date = date.fromisoformat(trade_date) if trade_date else date.today()
     predicted_at = datetime.now(UTC)
 
-    typer.echo("[1/4] Ingesting Phase 0 sources...")
+    typer.echo("[1/5] Ingesting Phase 0 sources...")
     ingest = PhaseZeroIngestionRunner(
         settings=settings,
         commodities=list(COMMODITIES.values()),
     ).run(load=True, trade_date=curve_date, cot_limit=cot_limit)
     _echo_batch_result(ingest)
 
+    typer.echo("[2/5] Ingesting news...")
+    try:
+        news = _collect_news(settings, timespan="1d", max_records=75)
+        with IngestionRepository.from_settings(settings) as repository:
+            repository.upsert_news_articles(news)
+        alerts = alert_worthy(news)
+        typer.echo(f"Loaded {len(news)} news events ({len(alerts)} high-impact).")
+    except Exception as exc:  # news is auxiliary — never fail the run on it
+        typer.echo(f"News ingestion skipped: {exc}")
+
     with IngestionRepository.from_settings(settings) as repository:
-        typer.echo("[2/4] Building feature row...")
+        typer.echo("[3/5] Building feature row...")
         feature_row = repository.derive_feature_row(
             config=commodity_config(commodity), as_of=predicted_at
         )
         repository.upsert_daily_feature_rows([feature_row])
         typer.echo(f"Feature row for {feature_row.report_date} ready.")
 
-        typer.echo("[3/4] Predicting...")
+        typer.echo("[4/5] Predicting...")
         if _both_artifacts_exist(price_artifact, spread_artifact):
             latest = repository.latest_daily_feature_row(commodity=commodity, as_of=predicted_at)
             if latest is None:
@@ -441,7 +455,7 @@ def run_nightly(
         else:
             typer.echo("Skipping prediction: model artifacts not provided or not found.")
 
-        typer.echo("[4/4] Model health...")
+        typer.echo("[5/5] Model health...")
         predictions = repository.list_daily_predictions(commodity=commodity)
         feature_rows = repository.list_daily_feature_rows(commodity=commodity)
     health = build_model_health_report(
@@ -493,6 +507,36 @@ def model_health(
             "Exported model-health outcomes to "
             f"{exported.outcomes_path} and metrics to {exported.metrics_path}."
         )
+
+
+@app.command()
+def ingest_news(
+    timespan: str = typer.Option("1d", "--timespan"),
+    max_records: int = typer.Option(75, "--max-records"),
+    load: bool = typer.Option(False, "--load"),
+) -> None:
+    """Fetch energy news (GDELT), filter, deduplicate, classify impact, and optionally load."""
+
+    settings = Settings()
+    classified = _collect_news(settings, timespan=timespan, max_records=max_records)
+    alerts = alert_worthy(classified)
+    typer.echo(f"Kept {len(classified)} classified events; {len(alerts)} high-impact alerts.")
+    for article in alerts:
+        typer.echo(
+            f"  ALERT [{round(article.importance_score)}/{article.impact_direction}] "
+            f"{article.commodity}: {article.title}"
+        )
+    if load:
+        with IngestionRepository.from_settings(settings) as repository:
+            _echo_load_result(repository.upsert_news_articles(classified))
+
+
+def _collect_news(settings: Settings, *, timespan: str, max_records: int):
+    connector = GdeltDocConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
+    raw = connector.fetch_articles(timespan=timespan, max_records=max_records)
+    relevant = deduplicate_articles([article for article in raw if is_relevant(article)])
+    classifier = RuleBasedClassifier()
+    return [classifier.classify(article) for article in relevant]
 
 
 @app.command()

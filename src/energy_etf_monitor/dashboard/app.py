@@ -21,6 +21,7 @@ from energy_etf_monitor.dashboard.data import (
     FeatureTimeSeries,
     feature_time_series,
     latest_call,
+    news_panel_rows,
 )
 from energy_etf_monitor.modeling.monitoring import build_model_health_report
 from energy_etf_monitor.storage.repository import IngestionRepository
@@ -30,10 +31,11 @@ def _load(commodity: str, as_of: datetime):
     with IngestionRepository.from_settings(Settings()) as repository:
         predictions = repository.list_daily_predictions(commodity=commodity)
         feature_rows = repository.list_daily_feature_rows(commodity=commodity)
+        news = repository.list_news_articles(as_of=as_of, limit=25)
     health = build_model_health_report(
         predictions, feature_rows, as_of=as_of, commodity=commodity
     )
-    return predictions, feature_rows, health
+    return predictions, feature_rows, news, health
 
 
 def _chart(series: FeatureTimeSeries) -> None:
@@ -52,7 +54,14 @@ def main() -> None:
 
     commodity = st.sidebar.selectbox("Commodity", list(COMMODITIES), index=0)
     as_of = datetime.now(UTC)
-    predictions, feature_rows, health = _load(commodity, as_of)
+    predictions, feature_rows, news, health = _load(commodity, as_of)
+
+    st.header("Latest market-moving news")
+    rows = news_panel_rows(news, limit=25)
+    if not rows:
+        st.info("No classified news yet. Run `ingest-news --load` to populate the panel.")
+    else:
+        st.dataframe(rows, hide_index=True, use_container_width=True)
 
     st.header("Today's call")
     call = latest_call(predictions)
