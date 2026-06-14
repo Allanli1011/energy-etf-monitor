@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     )
 
     data_dir: Path = Path("data")
-    database_url: str = "postgresql+psycopg://energy:energy@localhost:5432/energy_etf_monitor"
+    database_url: str = "sqlite:///data/state/energy_etf_monitor.sqlite"
 
     eia_api_key: str | None = None
     fred_api_key: str | None = None
@@ -36,4 +36,3 @@ class Settings(BaseSettings):
     @property
     def processed_data_dir(self) -> Path:
         return self.data_dir / "processed"
-

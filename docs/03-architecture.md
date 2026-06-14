@@ -13,7 +13,7 @@ as over-engineering for a single user.
 ```
 free data sources
    -> idempotent connectors (per source)            [data/raw/<source>/<date>/]
-   -> PostgreSQL  (report_date + knowledge_date)     [+ thin quality gate / quarantine]
+   -> SQLModel DB (SQLite default; Postgres optional) [+ thin quality gate / quarantine]
    -> feature engineering                            [carry, COT index, inventory surprise, crowding]
    -> { price-direction model | roll-spread model }  [LightGBM, two heads]
    -> Streamlit dashboard + news-impact lane + rule-based alerts
@@ -28,7 +28,10 @@ free data sources
   Barchart OnDemand later without touching downstream code.
 
 ### 2. Storage
-- Local Docker **PostgreSQL 16** (or Supabase / Neon free tier) via SQLAlchemy / SQLModel.
+- **SQLite by default** via SQLAlchemy / SQLModel. GitHub Actions persists the SQLite file on a
+  dedicated `state` branch with force-push, so scheduled runs need no hosted database secret.
+  PostgreSQL remains supported by setting `ENERGY_ETF_MONITOR_DATABASE_URL` to a
+  `postgresql+psycopg://...` URL.
 - **Graft #2 — dual timestamps:** every table carries both `report_date` and `knowledge_date`.
   This is what stops the backtest from lying.
 - **Graft #3 — thin quality gate:** lightweight `pydantic` assertions (NOT Great Expectations) —
@@ -102,7 +105,7 @@ free data sources
 | Concern | Choice |
 |---|---|
 | Ingestion | Python 3.12 + httpx, per-source connectors, swappable `CurveProvider` |
-| Storage | PostgreSQL 16 (Docker / Supabase / Neon free tier), dual timestamps, pydantic quality gate |
+| Storage | SQLite default (`state` branch in Actions) or PostgreSQL, dual timestamps, pydantic quality gate |
 | Analytical cache | Parquet + DuckDB |
 | Orchestration | launchd plist (or local Prefect agent) |
 | Modeling | LightGBM (2 heads) + scikit-learn baseline; MLflow file-store later |

@@ -7,8 +7,11 @@ on:
     - cron: "0 22 * * 1-5"
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 concurrency:
-  group: nightly
+  group: sqlite-state
   cancel-in-progress: false
 
 jobs:
@@ -16,13 +19,21 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-      # Point at a hosted Postgres (e.g. Supabase / Neon free tier) so state persists across runs.
-      ENERGY_ETF_MONITOR_DATABASE_URL: ${{ secrets.ENERGY_ETF_MONITOR_DATABASE_URL }}
+      STATE_BRANCH: state
+      STATE_DB_PATH: data/state/energy_etf_monitor.sqlite
+      ENERGY_ETF_MONITOR_DATABASE_URL: sqlite:///data/state/energy_etf_monitor.sqlite
       ENERGY_ETF_MONITOR_EIA_API_KEY: ${{ secrets.ENERGY_ETF_MONITOR_EIA_API_KEY }}
       ENERGY_ETF_MONITOR_FRED_API_KEY: ${{ secrets.ENERGY_ETF_MONITOR_FRED_API_KEY }}
       ENERGY_ETF_MONITOR_CFTC_APP_TOKEN: ${{ secrets.ENERGY_ETF_MONITOR_CFTC_APP_TOKEN }}
+      ENERGY_ETF_MONITOR_MARKETAUX_API_KEY: ${{ secrets.ENERGY_ETF_MONITOR_MARKETAUX_API_KEY }}
+      ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY: ${{ secrets.ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY }}
+      ENERGY_ETF_MONITOR_NEWS_CLASSIFIER: ${{ vars.ENERGY_ETF_MONITOR_NEWS_CLASSIFIER || 'rule' }}
+      ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL: ${{ secrets.ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL }}
+      ENERGY_ETF_MONITOR_ALERT_WEBHOOK_KIND: ${{ vars.ENERGY_ETF_MONITOR_ALERT_WEBHOOK_KIND || 'slack' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Restore SQLite state
+        run: bash .github/scripts/restore-state-db.sh
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
@@ -35,6 +46,10 @@ jobs:
           uv run energy-etf-monitor run-nightly \
             --price-artifact models/wti_price_logistic.json \
             --spread-artifact models/wti_spread_logistic.json
+      - name: Push SQLite state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/push-state-db.sh
       - name: Email on failure
         if: ${{ failure() }}
         uses: dawidd6/action-send-mail@v3

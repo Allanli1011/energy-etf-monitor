@@ -1,6 +1,6 @@
 <svg width="680" viewBox="0 0 680 528" xmlns="http://www.w3.org/2000/svg" role="img" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
 <title>energy-etf-monitor architecture</title>
-<desc>Top-down nightly batch pipeline: free data sources to idempotent connectors to PostgreSQL with report_date and knowledge_date dual timestamps, to feature engineering, to two LightGBM heads (price-direction and roll-spread), to a Streamlit dashboard with alerts. Blue marks the correctness keystone, the two model heads, and the dashboard; gray marks the data plumbing.</desc>
+<desc>Top-down nightly batch pipeline: free data sources to idempotent connectors to a SQLModel database with report_date and knowledge_date dual timestamps, to feature engineering, to two LightGBM heads (price-direction and roll-spread), to a Streamlit dashboard with alerts. Blue marks the correctness keystone, the two model heads, and the dashboard; gray marks the data plumbing.</desc>
 <style>
 .bg-gray{fill:#f0f0ef;stroke:#9a9a96;stroke-width:.75}
 .bg-blue{fill:#e6f1fb;stroke:#2f6fbf;stroke-width:.75}
@@ -31,7 +31,7 @@
 <line class="arr" x1="340" y1="176" x2="340" y2="199" marker-end="url(#arrow)"/>
 
 <rect class="bg-blue" x="170" y="200" width="340" height="52" rx="8"/>
-<text class="t-blue-title" x="340" y="223" text-anchor="middle">Storage · PostgreSQL (correctness keystone)</text>
+<text class="t-blue-title" x="340" y="223" text-anchor="middle">Storage · SQLite/Postgres</text>
 <text class="t-blue-sub" x="340" y="241" text-anchor="middle">report_date + knowledge_date dual timestamps</text>
 <line class="arr" x1="340" y1="252" x2="340" y2="275" marker-end="url(#arrow)"/>
 

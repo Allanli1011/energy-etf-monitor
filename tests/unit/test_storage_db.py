@@ -25,3 +25,15 @@ def test_create_db_and_tables_creates_phase_zero_tables(tmp_path: Path) -> None:
     assert "fund_crowding_metrics" in tables
     assert "daily_feature_rows" in tables
     engine.dispose()
+
+
+def test_create_db_and_tables_creates_sqlite_parent_directory(tmp_path: Path) -> None:
+    db_path = tmp_path / "state" / "nested" / "monitor.sqlite"
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        database_url=f"sqlite:///{db_path}",
+    )
+
+    create_db_and_tables(settings)
+
+    assert db_path.exists()

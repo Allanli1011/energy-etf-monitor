@@ -7,7 +7,7 @@ those are proven, the other commodities are largely config-driven expansion.
 
 | Phase | Weeks | Deliverable |
 |---|---|---|
-| 0 | 1 | Stand up Postgres (Docker); get EIA + FRED keys; write & test EIA-inventory, FRED-macro, CFTC-COT(WTI) connectors; verify CME CL settlement scraping for M1–M6 |
+| 0 | 1 | Stand up SQLite/Postgres storage; get EIA + FRED keys; write & test EIA-inventory, FRED-macro, CFTC-COT(WTI) connectors; verify CME CL settlement scraping for M1–M6 |
 | 1 | 1–2 | `USO` PCF connector (holdings + shares outstanding + NAV) → derive implied flow & AUM/OI; backfill WTI history to 2006–2010 |
 | 2 | 2 | Feature pipeline (carry, COT index, inventory surprise, crowding, macro) **with dual-timestamp / lag unit tests on known historical dates** |
 | 3 | 2–3 | Logistic-regression baseline + LightGBM price-head and spread-head via walk-forward; evaluate vs naive-persistence across 2008 / 2014–16 / 2020 / 2021–22 |
@@ -155,11 +155,11 @@ orchestration + alerting), then Phase 6 (Brent / NatGas / RBOB expansion).
 Orchestration runs on GitHub Actions (cloud cron) rather than a local scheduler:
 - `run-nightly` chains ingest → feature build → predict (skipped if artifacts absent) → model
   health, propagating a non-zero exit on genuine failures so the scheduler can alert.
-- `.github/workflows/nightly.yml` runs it weekdays at 22:00 UTC against a hosted Postgres, with an
-  email alert on failure (`dawidd6/action-send-mail`). `.github/workflows/ci.yml` runs ruff + tests
-  on push/PR.
+- `.github/workflows/nightly.yml` runs it weekdays at 22:00 UTC against a SQLite database restored
+  from the `state` branch and force-pushed back after success, with an email alert on failure
+  (`dawidd6/action-send-mail`). `.github/workflows/ci.yml` runs ruff + tests on push/PR.
 - Committed model artifacts live in `models/` (not the gitignored `data/processed/`). Setup —
-  secrets, hosted DB, SMTP, artifacts — is documented in
+  secrets, SQLite state branch, SMTP, artifacts — is documented in
   [07-deployment.md](./07-deployment.md).
 
 Still pending for Phase 5: an automated monthly retrain workflow (daily runs currently predict with
@@ -270,7 +270,8 @@ Deliverables:
   history to test honestly. The Phase 7 panel can still be useful before news becomes a model input.
 - **MLflow** — start with a flat pickle + CSV prediction log; add the file-store once the loop is
   stable.
-- **Hosted Postgres** — start with local Docker (or SQLite if Docker is friction).
+- **Hosted Postgres** — optional upgrade only; the default scheduled deployment uses SQLite on a
+  dedicated `state` branch.
 - **European UCITS layer** — swap-based, holdings opaque; low payoff, secondary sentiment only.
 
 ## Per-issuer onboarding cost (a real risk, not "just a config")

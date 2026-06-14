@@ -46,7 +46,7 @@ app = typer.Typer(help="Energy ETF Monitor development CLI.")
 
 @app.command()
 def init_db() -> None:
-    """Create database tables in the configured Postgres database."""
+    """Create database tables in the configured database."""
 
     create_db_and_tables(Settings())
     typer.echo("Database tables are ready.")

@@ -5,7 +5,7 @@ fund flows, holdings, and roll strategy to produce **probabilistic directional t
 the underlying futures price and, primarily, the **calendar (roll) spread**.
 
 > Phase 0 development has started. The repository now includes the Python project skeleton,
-> Postgres compose file, point-in-time storage models, quality-gated idempotent loading, first
+> SQLite/Postgres-compatible point-in-time storage models, quality-gated idempotent loading, first
 > ingestion connectors for EIA, FRED, CFTC COT, CME settlement curves, and the initial USO PCF
 > parser/storage path. The WTI vertical slice remains the first milestone; see
 > [docs/06-roadmap.md](docs/06-roadmap.md) for the full build sequence.
@@ -41,7 +41,7 @@ outright price model. See [docs/05-prediction-methodology.md](docs/05-prediction
 Nightly batch pipeline (matched to low-frequency data), single machine, mostly-free data:
 
 ```
-free sources -> idempotent connectors -> PostgreSQL (dual timestamps) -> features ->
+free sources -> idempotent connectors -> SQLModel DB (SQLite default; Postgres optional) -> features ->
   { price-direction model | roll-spread model }  (LightGBM) -> Streamlit dashboard + alerts
 ```
 
@@ -58,7 +58,7 @@ See [docs/03-architecture.md](docs/03-architecture.md) and
 | [04-data-sources](docs/04-data-sources.md) | Free backbone + paid upgrade slots, with API endpoints / series IDs |
 | [05-prediction-methodology](docs/05-prediction-methodology.md) | Two model heads, feature engineering, evidence, caveats |
 | [06-roadmap](docs/06-roadmap.md) | Phased build (WTI end-to-end first), then horizontal expansion |
-| [07-deployment](docs/07-deployment.md) | Scheduled runs on GitHub Actions (secrets, hosted DB, email alerts) |
+| [07-deployment](docs/07-deployment.md) | Scheduled runs on GitHub Actions (SQLite state branch, secrets, email alerts) |
 
 ## Development
 
@@ -69,12 +69,15 @@ uv run --extra dev pytest
 uv run --extra dev ruff check .
 ```
 
-Start the local Postgres database:
+Initialize the local SQLite database:
 
 ```bash
-docker compose up -d postgres
 uv run energy-etf-monitor init-db
 ```
+
+By default this creates `data/state/energy_etf_monitor.sqlite`. If you prefer Postgres locally,
+set `ENERGY_ETF_MONITOR_DATABASE_URL` to a `postgresql+psycopg://...` URL and start the included
+Docker service.
 
 Configure API keys by copying `.env.example` to `.env` and filling in the free keys for EIA and
 FRED. CFTC can run without an app token at low volume, though a token is recommended for
@@ -257,9 +260,9 @@ uv run energy-etf-monitor run-nightly \
   --spread-artifact models/wti_spread_logistic.json
 ```
 
-In the cloud this runs on a schedule via GitHub Actions (`.github/workflows/nightly.yml`) with an
-email alert on failure — see [docs/07-deployment.md](docs/07-deployment.md) for the required
-secrets, hosted Postgres, and artifact setup.
+In the cloud this runs on a schedule via GitHub Actions (`.github/workflows/nightly.yml`) with a
+SQLite database persisted on a dedicated `state` branch and an email alert on failure — see
+[docs/07-deployment.md](docs/07-deployment.md) for setup.
 
 Raw payloads are saved before parsing under `data/raw/<source>/<date>/`, matching the provenance
 rule in the architecture plan. Parsed records carry both `report_date` and `knowledge_date`.
@@ -286,7 +289,8 @@ reference, model-version stamps, and ranked linear driver contributions.
 ## Status
 
 Implementation started. Current status: Phase 0 foundation with tested ingestion primitives,
-source connectors, raw-payload replay storage, Docker Postgres config, dual-timestamp storage
+source connectors, raw-payload replay storage, SQLite default storage with optional Docker
+Postgres config, dual-timestamp storage
 models, idempotent repository loading, lightweight quality quarantine, and a batch Phase 0
 ingestion command. Phase 1 has started with a USO PCF parser, fund daily metric storage, holdings
 storage, implied-flow derivation, and AUM/OI crowding metrics. Phase 2 has a first WTI feature
@@ -311,4 +315,4 @@ RSS), an optional LLM classifier (`llm` extra), Slack/ntfy alert posting, point-
 features in the model, cross-commodity pooled training, and a monthly auto-retrain workflow that
 commits refreshed artifacts. Scheduled in the cloud via three GitHub Actions workflows (CI, nightly,
 monthly-retrain) — see [docs/07-deployment.md](docs/07-deployment.md). Target stack remains
-Python 3.12+, PostgreSQL 16, LightGBM, Streamlit — all free / self-hostable.
+Python 3.12+, SQLite/PostgreSQL, LightGBM, Streamlit — all free / self-hostable.
