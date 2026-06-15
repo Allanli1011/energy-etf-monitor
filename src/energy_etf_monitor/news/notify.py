@@ -10,6 +10,8 @@ import httpx
 
 from energy_etf_monitor.records import NewsArticle
 
+VALID_WEBHOOK_KINDS = frozenset({"slack", "ntfy"})
+
 
 def format_alert_message(articles: Sequence[NewsArticle]) -> str:
     lines = ["High-impact energy news:"]
@@ -33,6 +35,10 @@ def post_news_alerts(
 
     if not articles or not webhook_url:
         return 0
+    if kind not in VALID_WEBHOOK_KINDS:
+        raise ValueError(
+            f"unsupported webhook kind {kind!r}; expected one of {sorted(VALID_WEBHOOK_KINDS)}"
+        )
     message = format_alert_message(articles)
 
     owned_client = client or httpx.Client(timeout=15)

@@ -75,7 +75,11 @@ class GdeltDocConnector:
             seendate = item.get("seendate")
             if not url or not title or not seendate:
                 continue
-            published_at = _parse_seendate(seendate)
+            # One malformed seendate must not discard the rest of the batch.
+            try:
+                published_at = _parse_seendate(seendate)
+            except (TypeError, ValueError):
+                continue
             articles.append(
                 NewsArticle(
                     source=GdeltDocConnector.source,

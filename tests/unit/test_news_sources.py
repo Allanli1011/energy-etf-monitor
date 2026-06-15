@@ -33,6 +33,22 @@ def test_marketaux_normalizes_articles() -> None:
     assert rows[0].canonical_url == "example.com/oil-1"
 
 
+def test_marketaux_skips_malformed_timestamp() -> None:
+    payload = {
+        "data": [
+            {"url": "https://a.com/1", "title": "Good", "published_at": "2026-06-12T09:00:00Z"},
+            # unparseable timestamp must not discard the whole batch
+            {"url": "https://a.com/2", "title": "Bad", "published_at": "not-a-time"},
+        ]
+    }
+
+    rows = MarketauxConnector.normalize_articles(
+        payload=payload, fetched_at=datetime(2026, 6, 12, 14, tzinfo=UTC)
+    )
+
+    assert [row.title for row in rows] == ["Good"]
+
+
 def test_marketaux_fetch_uses_token_and_saves_raw(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["api_token"] == "mx-key"
@@ -85,6 +101,39 @@ def test_rss_normalizes_feed_items() -> None:
     assert rows[0].title == "EIA: crude inventories drop sharply"
     assert rows[0].published_at == datetime(2026, 6, 12, 13, tzinfo=UTC)
     assert rows[0].summary == "Weekly draw"
+
+
+def test_rss_normalizes_atom_feed() -> None:
+    xml_text = """<?xml version="1.0" encoding="utf-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>Atom: natural gas prices climb</title>
+        <link rel="alternate" href="https://example.com/atom-1"/>
+        <published>2026-06-12T13:00:00Z</published>
+        <summary>Cold snap lifts demand</summary>
+      </entry>
+    </feed>
+    """
+
+    rows = RssNewsConnector.normalize_feed(
+        xml_text=xml_text, source="opec", fetched_at=datetime(2026, 6, 12, 14, tzinfo=UTC)
+    )
+
+    assert len(rows) == 1
+    assert rows[0].title == "Atom: natural gas prices climb"
+    assert rows[0].url == "https://example.com/atom-1"
+    assert rows[0].published_at == datetime(2026, 6, 12, 13, tzinfo=UTC)
+    assert rows[0].summary == "Cold snap lifts demand"
+
+
+def test_rss_returns_empty_on_malformed_xml() -> None:
+    rows = RssNewsConnector.normalize_feed(
+        xml_text="<rss><channel><item><title>oops",  # truncated / unparseable
+        source="x",
+        fetched_at=datetime(2026, 6, 12, 14, tzinfo=UTC),
+    )
+
+    assert rows == []
 
 
 def test_rss_fetch_saves_raw_payload(tmp_path: Path) -> None:

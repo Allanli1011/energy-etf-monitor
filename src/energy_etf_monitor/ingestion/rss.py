@@ -60,15 +60,19 @@ class RssNewsConnector:
 
     @staticmethod
     def normalize_feed(*, xml_text: str, source: str, fetched_at: datetime) -> list[NewsArticle]:
-        root = ElementTree.fromstring(xml_text)
+        try:
+            root = ElementTree.fromstring(xml_text)
+        except ElementTree.ParseError:
+            # A single malformed feed yields no articles instead of aborting every other feed.
+            return []
         articles: list[NewsArticle] = []
-        for item in root.iter("item"):
-            title = (item.findtext("title") or "").strip()
-            link = (item.findtext("link") or "").strip()
+        for entry in _iter_feed_entries(root):
+            title = (_child_text(entry, "title") or "").strip()
+            link = (_entry_link(entry) or "").strip()
             if not title or not link:
                 continue
-            published_at = _parse_pubdate(item.findtext("pubDate"), fallback=fetched_at)
-            summary = item.findtext("description")
+            published_at = _parse_pubdate(_entry_pubdate(entry), fallback=fetched_at)
+            summary = _entry_summary(entry)
             articles.append(
                 NewsArticle(
                     source=source,
@@ -85,13 +89,74 @@ class RssNewsConnector:
         return articles
 
 
+def _local_name(tag: str) -> str:
+    """Strip any XML namespace so RSS and Atom tags compare by local name."""
+
+    return tag.rsplit("}", 1)[-1]
+
+
+def _iter_feed_entries(root: ElementTree.Element) -> list[ElementTree.Element]:
+    """Collect RSS <item> and Atom <entry> elements regardless of namespace."""
+
+    return [element for element in root.iter() if _local_name(element.tag) in ("item", "entry")]
+
+
+def _child_text(element: ElementTree.Element, name: str) -> str | None:
+    for child in element:
+        if _local_name(child.tag) == name and child.text:
+            return child.text
+    return None
+
+
+def _entry_link(element: ElementTree.Element) -> str | None:
+    """Resolve a link from RSS (<link>url</link>) or Atom (<link href=... rel=alternate/>)."""
+
+    fallback: str | None = None
+    for child in element:
+        if _local_name(child.tag) != "link":
+            continue
+        href = child.get("href")
+        if href:
+            if child.get("rel") in (None, "alternate"):
+                return href
+            fallback = fallback or href
+        elif child.text and child.text.strip():
+            return child.text.strip()
+    return fallback
+
+
+def _entry_pubdate(element: ElementTree.Element) -> str | None:
+    # RSS uses pubDate; Atom uses published/updated.
+    for name in ("pubDate", "published", "updated"):
+        value = _child_text(element, name)
+        if value:
+            return value
+    return None
+
+
+def _entry_summary(element: ElementTree.Element) -> str | None:
+    # RSS uses description; Atom uses summary/content.
+    for name in ("description", "summary", "content"):
+        value = _child_text(element, name)
+        if value:
+            return value
+    return None
+
+
 def _parse_pubdate(value: str | None, *, fallback: datetime) -> datetime:
     if not value:
         return fallback
-    try:
-        parsed = parsedate_to_datetime(value)
+    text = value.strip()
+    parsed: datetime | None = None
+    try:  # RFC 822 (RSS pubDate, e.g. "Fri, 12 Jun 2026 13:00:00 GMT")
+        parsed = parsedate_to_datetime(text)
     except (TypeError, ValueError):
-        return fallback
+        parsed = None
+    if parsed is None:
+        try:  # ISO 8601 (Atom published/updated)
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed

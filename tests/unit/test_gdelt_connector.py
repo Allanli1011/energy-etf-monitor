@@ -37,6 +37,23 @@ def test_normalize_articles_parses_seendate_and_builds_url_hash() -> None:
     assert row.url_hash
 
 
+def test_normalize_articles_skips_malformed_seendate() -> None:
+    payload = {
+        "articles": [
+            {"url": "https://a.com/1", "title": "Good", "seendate": "20260612T130000Z"},
+            # off-format seendate must not discard the whole batch
+            {"url": "https://a.com/2", "title": "Bad date", "seendate": "2026-06-12"},
+        ]
+    }
+
+    rows = GdeltDocConnector.normalize_articles(
+        payload=payload,
+        fetched_at=datetime(2026, 6, 12, 14, tzinfo=UTC),
+    )
+
+    assert [row.title for row in rows] == ["Good"]
+
+
 def test_fetch_articles_queries_doc_api_and_saves_raw_payload(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/api/v2/doc/doc")

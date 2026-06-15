@@ -773,7 +773,9 @@ def test_train_pooled_artifact_command_parses_specs_and_trains(monkeypatch, tmp_
 
     assert result.exit_code == 0
     assert {name for name in loaded["caches"]} == {"WTI", "NATGAS"}
-    assert str(loaded["caches"]["WTI"]) == "/tmp/wti.parquet"
+    # Compare Path objects (not their string form) so the assertion is OS-independent:
+    # Path("/tmp/wti.parquet") stringifies with backslashes on Windows.
+    assert loaded["caches"]["WTI"] == Path("/tmp/wti.parquet")
     assert "across 2 commodities" in result.output
 
 

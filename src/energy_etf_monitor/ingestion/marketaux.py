@@ -67,7 +67,11 @@ class MarketauxConnector:
             published_raw = item.get("published_at")
             if not url or not title or not published_raw:
                 continue
-            published_at = _parse_iso(published_raw)
+            # Skip a single article with an unparseable timestamp rather than the whole batch.
+            try:
+                published_at = _parse_iso(published_raw)
+            except (TypeError, ValueError):
+                continue
             articles.append(
                 NewsArticle(
                     source=MarketauxConnector.source,

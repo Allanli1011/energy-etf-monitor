@@ -1051,6 +1051,7 @@ class IngestionRepository:
                 FundDailyMetricRow.source == record.source,
                 FundDailyMetricRow.fund_ticker == record.fund_ticker,
                 FundDailyMetricRow.report_date < record.report_date,
+                FundDailyMetricRow.quarantine.is_(False),
             )
             .order_by(FundDailyMetricRow.report_date.desc())
         ).first()
@@ -1076,6 +1077,8 @@ def _carry(
     second_month: FuturesSettlementRow | None,
 ) -> float | None:
     if front_month is None or second_month is None:
+        return None
+    if front_month.settlement_price == 0:
         return None
     return (front_month.settlement_price - second_month.settlement_price) / (
         front_month.settlement_price

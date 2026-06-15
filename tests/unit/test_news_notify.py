@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import httpx
+import pytest
 
 from energy_etf_monitor.news.notify import format_alert_message, post_news_alerts
 from energy_etf_monitor.records import NewsArticle
@@ -70,3 +71,8 @@ def test_post_news_alerts_ntfy_sends_plain_body() -> None:
 def test_post_news_alerts_noop_without_url_or_articles() -> None:
     assert post_news_alerts([], webhook_url="https://x", kind="slack") == 0
     assert post_news_alerts([_article("x")], webhook_url=None, kind="slack") == 0
+
+
+def test_post_news_alerts_rejects_unknown_kind() -> None:
+    with pytest.raises(ValueError, match="unsupported webhook kind"):
+        post_news_alerts([_article("x")], webhook_url="https://x", kind="discord")

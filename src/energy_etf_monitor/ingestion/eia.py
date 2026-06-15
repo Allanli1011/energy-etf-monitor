@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -57,16 +57,43 @@ class EiaSeriesConnector:
             value = row.get("value")
             if value in (None, "", "."):
                 continue
+            # Skip a single malformed row (bad value or unparseable period) rather than
+            # discarding the whole series; EIA periods vary by frequency (daily/weekly,
+            # monthly "YYYY-MM", annual "YYYY").
+            try:
+                report_date = _parse_period(str(row["period"]))
+                numeric_value = float(value)
+            except (KeyError, TypeError, ValueError):
+                continue
             normalized.append(
                 TimeSeriesObservation(
                     source=EiaSeriesConnector.source,
                     series_id=str(row.get("series") or series_id),
-                    report_date=datetime.fromisoformat(str(row["period"])).date(),
+                    report_date=report_date,
                     knowledge_date=fetched_at,
-                    value=float(value),
+                    value=numeric_value,
                     unit=row.get("units"),
                     metadata={"raw_period": row.get("period")},
                 )
             )
         return normalized
+
+
+def _parse_period(period: str) -> date:
+    """Parse an EIA period string into a date across all reporting frequencies.
+
+    Daily/weekly series use a full ISO date ("YYYY-MM-DD"); monthly series report "YYYY-MM"
+    and annual series "YYYY". Partial periods anchor to the first day of the month/year.
+    """
+
+    text = period.strip()
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text, "%Y-%m").date()
+    except ValueError:
+        pass
+    return datetime.strptime(text, "%Y").date()
 
