@@ -13,6 +13,7 @@ CME's settlement pages block CI runner IPs (HTTP 403) and EIA discontinued its f
 2024, so Yahoo is the practical free source for WTI/NatGas futures prices.
 """
 
+import contextlib
 from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
@@ -232,10 +233,8 @@ class YahooEtfMetricsConnector:
         try:
             # Prime the cookie (fc.yahoo.com sets the one getcrumb needs — it 404s, that's fine),
             # fetch a crumb, then call the crumb-gated quoteSummary endpoint.
-            try:
+            with contextlib.suppress(httpx.HTTPError):
                 client.get("https://fc.yahoo.com")
-            except httpx.HTTPError:
-                pass
             crumb = client.get("https://query1.finance.yahoo.com/v1/test/getcrumb").text.strip()
             if not crumb or len(crumb) > 32 or "{" in crumb:
                 raise ValueError(f"Yahoo did not return a usable crumb for {fund_ticker}")
