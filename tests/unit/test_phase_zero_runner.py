@@ -1,5 +1,7 @@
 from datetime import UTC, date, datetime
 
+import httpx
+
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.ingestion.runner import (
     PHASE0_EIA_SERIES,
@@ -181,4 +183,62 @@ def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
     assert calls["cme"] == ["CL", "NG"]
     # NatGas storage series is folded into the EIA series list.
     assert "NG.NW2_EPG0_SWO_R48_BCF.W" in calls["eia"]
+
+
+def test_phase_zero_runner_isolates_a_failing_source(tmp_path) -> None:
+    loaded: dict[str, int] = {}
+
+    class FakeEia:
+        def fetch_series(self, series_id: str):
+            return [_observation(series_id)]
+
+    class FakeFred:
+        def fetch_observations(self, series_id: str):
+            return [_observation(series_id)]
+
+    class FakeCftc:
+        def fetch_positions(self, *, commodity: str, contract_market_code: str, limit: int):
+            return [_cot_position()]
+
+    class FailingCme:
+        def fetch_curve(self, *, product_code: str, trade_date: date):
+            raise httpx.ReadTimeout("boom")
+
+    class FakeRepository:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def upsert_time_series(self, records):
+            loaded["time_series"] = loaded.get("time_series", 0) + len(records)
+            return LoadResult(inserted=len(records))
+
+        def upsert_cot_positions(self, records):
+            loaded["cot"] = len(records)
+            return LoadResult(inserted=len(records))
+
+        def upsert_futures_settlements(self, records):
+            loaded["settlements"] = len(records)
+            return LoadResult(inserted=len(records))
+
+    runner = PhaseZeroIngestionRunner(
+        settings=Settings(data_dir=tmp_path),
+        eia_connector=FakeEia(),
+        fred_connector=FakeFred(),
+        cftc_connector=FakeCftc(),
+        cme_provider=FailingCme(),
+        repository_factory=lambda settings: FakeRepository(),
+    )
+
+    result = runner.run(load=True, trade_date=date(2026, 6, 12), cot_limit=25)
+
+    # The CME timeout is isolated: recorded as a failure, never raised.
+    assert [run.name for run in result.failures] == ["CL curve"]
+    assert "ReadTimeout" in result.failures[0].error
+    # EIA / FRED / CFTC still ingested and loaded; only the futures curve is missing.
+    assert "settlements" not in loaded
+    assert loaded["cot"] == 1
+    assert loaded["time_series"] == len(PHASE0_EIA_SERIES) + len(PHASE0_FRED_SERIES)
 

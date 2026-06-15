@@ -16,6 +16,19 @@ from energy_etf_monitor.records import FuturesSettlement
 CME_SETTLEMENT_TZ = ZoneInfo("America/New_York")
 CME_SETTLEMENT_PUBLISH_TIME = time(16, 0)
 
+# cmegroup.com fronts an aggressive bot filter; a default httpx client (no browser headers) is
+# routinely dropped. These headers improve the odds from a normal host. From blocked datacenter
+# IPs (e.g. CI runners) the request may still time out — the ingestion runner treats that as a
+# skippable per-source failure rather than aborting the batch.
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
 MONTHS = {
     "JAN": 1,
     "FEB": 2,
@@ -130,7 +143,9 @@ class CmeSettlementCurveProvider:
             raise ValueError(f"Unsupported CME product code: {product_code}") from exc
 
         fetched_at = datetime.now(UTC)
-        client = self.client or httpx.Client(timeout=30)
+        client = self.client or httpx.Client(
+            timeout=30, headers=_BROWSER_HEADERS, follow_redirects=True
+        )
         close_client = self.client is None
         try:
             response = client.get(url)

@@ -60,6 +60,7 @@ class SourceRunResult:
     name: str
     fetched: int
     load_result: LoadResult | None = None
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,10 @@ class BatchIngestionResult:
     @property
     def quarantined_total(self) -> int:
         return sum(run.load_result.quarantined for run in self.runs if run.load_result is not None)
+
+    @property
+    def failures(self) -> list[SourceRunResult]:
+        return [run for run in self.runs if run.error is not None]
 
 
 class PhaseZeroIngestionRunner:
@@ -136,10 +141,10 @@ class PhaseZeroIngestionRunner:
 
         repository_context = self.repository_factory(self.settings) if load else None
         if repository_context is None:
-            self._fetch_all_without_loading(runs, trade_date=trade_date, cot_limit=cot_limit)
+            self._fetch_all(runs, repository=None, trade_date=trade_date, cot_limit=cot_limit)
         else:
             with repository_context as repository:
-                self._fetch_all_with_loading(
+                self._fetch_all(
                     runs,
                     repository=repository,
                     trade_date=trade_date,
@@ -148,87 +153,74 @@ class PhaseZeroIngestionRunner:
 
         return BatchIngestionResult(runs=runs)
 
-    def _fetch_all_without_loading(
+    def _fetch_all(
         self,
         runs: list[SourceRunResult],
         *,
+        repository: IngestionRepository | None,
         trade_date: date,
         cot_limit: int,
     ) -> None:
         for series_id in self.eia_series:
-            rows = self.eia_connector.fetch_series(series_id)
-            runs.append(SourceRunResult(source="eia", name=series_id, fetched=len(rows)))
-        for series_id in self.fred_series:
-            rows = self.fred_connector.fetch_observations(series_id)
-            runs.append(SourceRunResult(source="fred", name=series_id, fetched=len(rows)))
-        for config in self.commodities:
-            cot_rows = self.cftc_connector.fetch_positions(
-                commodity=config.name,
-                contract_market_code=config.cot_contract_market_code,
-                limit=cot_limit,
+            self._ingest_source(
+                runs,
+                source="eia",
+                name=series_id,
+                fetch=lambda series_id=series_id: self.eia_connector.fetch_series(series_id),
+                load=repository.upsert_time_series if repository is not None else None,
             )
-            runs.append(
-                SourceRunResult(source="cftc", name=f"{config.name} COT", fetched=len(cot_rows))
+        for series_id in self.fred_series:
+            self._ingest_source(
+                runs,
+                source="fred",
+                name=series_id,
+                fetch=lambda series_id=series_id: self.fred_connector.fetch_observations(series_id),
+                load=repository.upsert_time_series if repository is not None else None,
+            )
+        for config in self.commodities:
+            self._ingest_source(
+                runs,
+                source="cftc",
+                name=f"{config.name} COT",
+                fetch=lambda config=config: self.cftc_connector.fetch_positions(
+                    commodity=config.name,
+                    contract_market_code=config.cot_contract_market_code,
+                    limit=cot_limit,
+                ),
+                load=repository.upsert_cot_positions if repository is not None else None,
             )
         for product_code in self.cme_products:
-            rows = self.cme_provider.fetch_curve(product_code=product_code, trade_date=trade_date)
-            runs.append(
-                SourceRunResult(
-                    source="cme",
-                    name=f"{product_code} curve",
-                    fetched=len(rows),
-                )
+            self._ingest_source(
+                runs,
+                source="cme",
+                name=f"{product_code} curve",
+                fetch=lambda product_code=product_code: self.cme_provider.fetch_curve(
+                    product_code=product_code, trade_date=trade_date
+                ),
+                load=repository.upsert_futures_settlements if repository is not None else None,
             )
 
-    def _fetch_all_with_loading(
+    def _ingest_source(
         self,
         runs: list[SourceRunResult],
         *,
-        repository: IngestionRepository,
-        trade_date: date,
-        cot_limit: int,
+        source: str,
+        name: str,
+        fetch: Callable[[], list],
+        load: Callable[[list], LoadResult] | None,
     ) -> None:
-        for series_id in self.eia_series:
-            rows = self.eia_connector.fetch_series(series_id)
-            runs.append(
-                SourceRunResult(
-                    source="eia",
-                    name=series_id,
-                    fetched=len(rows),
-                    load_result=repository.upsert_time_series(rows),
-                )
+        """Fetch (and optionally load) one source, isolating failures so a single flaky
+        upstream source (timeout, parse error, outage) is recorded and skipped rather than
+        aborting the whole batch."""
+
+        try:
+            rows = fetch()
+        except Exception as exc:
+            runs.append(SourceRunResult(source=source, name=name, fetched=0, error=repr(exc)))
+            return
+        load_result = load(rows) if load is not None else None
+        runs.append(
+            SourceRunResult(
+                source=source, name=name, fetched=len(rows), load_result=load_result
             )
-        for series_id in self.fred_series:
-            rows = self.fred_connector.fetch_observations(series_id)
-            runs.append(
-                SourceRunResult(
-                    source="fred",
-                    name=series_id,
-                    fetched=len(rows),
-                    load_result=repository.upsert_time_series(rows),
-                )
-            )
-        for config in self.commodities:
-            cot_rows = self.cftc_connector.fetch_positions(
-                commodity=config.name,
-                contract_market_code=config.cot_contract_market_code,
-                limit=cot_limit,
-            )
-            runs.append(
-                SourceRunResult(
-                    source="cftc",
-                    name=f"{config.name} COT",
-                    fetched=len(cot_rows),
-                    load_result=repository.upsert_cot_positions(cot_rows),
-                )
-            )
-        for product_code in self.cme_products:
-            rows = self.cme_provider.fetch_curve(product_code=product_code, trade_date=trade_date)
-            runs.append(
-                SourceRunResult(
-                    source="cme",
-                    name=f"{product_code} curve",
-                    fetched=len(rows),
-                    load_result=repository.upsert_futures_settlements(rows),
-                )
-            )
+        )

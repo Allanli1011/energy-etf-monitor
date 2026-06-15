@@ -792,6 +792,8 @@ def _echo_batch_result(result: BatchIngestionResult) -> None:
     typer.echo(f"Fetched {result.fetched_total} rows across {len(result.runs)} tasks.")
     if result.loaded_total:
         typer.echo(f"Loaded {result.loaded_total} rows ({result.quarantined_total} quarantined).")
+    for run in result.failures:
+        typer.echo(f"  ! skipped {run.source}:{run.name} — {run.error}")
 
 
 def _format_metrics(metrics: dict[str, float]) -> str:
