@@ -1,42 +1,19 @@
-import json
 from datetime import UTC, date, datetime
 
 from energy_etf_monitor.dashboard.static_report import render_dashboard_html
-from energy_etf_monitor.modeling.monitoring import ModelHealthReport
-from energy_etf_monitor.records import DailyFeatureRow, DailyPrediction, NewsArticle
+from energy_etf_monitor.records import DailyFeatureRow, NewsArticle
 
 
-def _feature_row(report_date: date, price: float) -> DailyFeatureRow:
+def _feature_row(report_date: date, price: float, cot: float, inventory: float) -> DailyFeatureRow:
     return DailyFeatureRow(
         source="test",
         commodity="WTI",
         report_date=report_date,
         knowledge_date=datetime.combine(report_date, datetime.min.time(), tzinfo=UTC),
         cl_front_month_settlement=price,
-        cl_m1_m2_spread=0.3,
-        cot_swap_dealer_net=-100_000.0,
-        inventory_value=420_000.0,
-    )
-
-
-def _prediction(report_date: date) -> DailyPrediction:
-    return DailyPrediction(
-        source="test",
-        commodity="WTI",
-        report_date=report_date,
-        knowledge_date=datetime.combine(report_date, datetime.min.time(), tzinfo=UTC),
-        horizon_days=5,
-        feature_report_date=report_date,
-        price_up_probability=0.62,
-        spread_up_probability=0.44,
-        price_model_version="v1",
-        spread_model_version="v1",
-        price_top_drivers=json.dumps([{"feature": "cl_carry_m1_m2", "contribution": 0.8}]),
-        spread_top_drivers=json.dumps(
-            [{"feature": "cot_swap_dealer_net_index", "contribution": -0.3}]
-        ),
-        price_naive_probability=1.0,
-        spread_naive_probability=0.0,
+        cot_swap_dealer_net=cot,
+        inventory_value=inventory,
+        inventory_seasonal_surprise=0.5,
     )
 
 
@@ -46,7 +23,7 @@ def _news(moment: datetime) -> NewsArticle:
         report_date=moment.date(),
         knowledge_date=moment,
         published_at=moment,
-        url="https://example.com/1",
+        url="https://example.com/article-1",
         url_hash="h1",
         title="OPEC cuts output",
         commodity="WTI",
@@ -57,54 +34,38 @@ def _news(moment: datetime) -> NewsArticle:
     )
 
 
-def test_render_dashboard_html_is_self_contained_and_populated() -> None:
+def test_render_dashboard_is_interactive_factor_view() -> None:
     as_of = datetime(2026, 6, 15, 12, tzinfo=UTC)
     days = [date(2026, 6, 10), date(2026, 6, 11), date(2026, 6, 12)]
-    feature_rows = [_feature_row(day, 78.0 + index) for index, day in enumerate(days)]
-    health = ModelHealthReport(
-        commodity="WTI",
-        outcomes=[],
-        metrics={"price_model_accuracy": 0.57},
-        regime_metrics={},
-        rolling_metrics={},
-    )
+    rows = [_feature_row(day, 78.0 + i, -100000.0 - i, 420000.0 + i) for i, day in enumerate(days)]
 
-    html_doc = render_dashboard_html(
+    page = render_dashboard_html(
         commodity="WTI",
-        predictions=[_prediction(days[-1])],
-        feature_rows=feature_rows,
+        feature_rows=rows,
         news=[_news(as_of)],
-        health=health,
         as_of=as_of,
         commodities=("WTI", "NATGAS"),
     )
 
-    assert html_doc.startswith("<!doctype html>")
-    assert "Energy ETF monitor" in html_doc
-    assert "OPEC cuts output" in html_doc  # news rendered
-    assert "P(price up)" in html_doc and "0.62" in html_doc  # today's call
-    assert "<svg" in html_doc  # inline SVG charts
-    assert "price_model_accuracy" in html_doc  # model health
-    assert 'href="natgas.html"' in html_doc  # nav link to sibling commodity
-    assert "<script" not in html_doc  # truly static — no JavaScript
+    assert page.startswith("<!doctype html>")
+    assert "Energy price factors" in page
+    assert "Not a price forecast" in page
+    assert "ETF roll watch" in page and "USO" in page  # roll strategy + alert
+    assert "Time range" in page  # global range selector
+    assert '"price"' in page and "78.0" in page  # embedded price series for the JS charts
+    assert "https://example.com/article-1" in page  # news url embedded for the JS to link
+    assert 'target="_blank"' in page  # JS renders news titles as links opening in a new tab
+    assert "OPEC cuts output" in page
+    assert "<script>" in page  # interactive (vanilla JS, self-contained)
+    # The prediction view is gone.
+    assert "P(price up)" not in page and "Today's call" not in page
 
 
-def test_render_dashboard_html_handles_empty_state() -> None:
+def test_render_dashboard_handles_empty_state() -> None:
     as_of = datetime(2026, 6, 15, 12, tzinfo=UTC)
-    health = ModelHealthReport(
-        commodity="WTI", outcomes=[], metrics={}, regime_metrics={}, rolling_metrics={}
-    )
 
-    html_doc = render_dashboard_html(
-        commodity="WTI",
-        predictions=[],
-        feature_rows=[],
-        news=[],
-        health=health,
-        as_of=as_of,
-    )
+    page = render_dashboard_html(commodity="WTI", feature_rows=[], news=[], as_of=as_of)
 
-    assert "No predictions yet." in html_doc
-    assert "No classified news yet." in html_doc
-    assert "no data yet" in html_doc  # empty charts render a placeholder, not a crash
-    assert "<script" not in html_doc
+    assert "Energy price factors" in page
+    assert '"news": []' in page  # empty series embed without crashing
+    assert "ETF roll watch" in page
