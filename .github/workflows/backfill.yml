@@ -47,23 +47,30 @@ jobs:
         run: echo "end=${END:-$(date -u +%F)}" >> "$GITHUB_OUTPUT"
         env:
           END: ${{ inputs.end_date }}
-      - name: Ingest history (EIA / FRED / CFTC + Yahoo futures curve)
+      - name: Backfill + train all commodities
         run: |
-          uv run energy-etf-monitor ingest-phase0 --commodity WTI --load
-          uv run energy-etf-monitor ingest-yahoo-curve-history --commodity WTI \
-            --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" --load
-      - name: Backfill point-in-time feature rows
-        run: |
-          uv run energy-etf-monitor build-feature-range --commodity WTI \
-            --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" \
-            --as-of-time "23:00:00+00:00"
-      - name: Train model artifacts
-        run: |
-          uv run energy-etf-monitor export-feature-cache --commodity WTI --output-path /tmp/wti.parquet
-          uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache /tmp/wti.parquet \
-            --target-name price_direction --output-path models/wti_price_logistic.json
-          uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache /tmp/wti.parquet \
-            --target-name spread_direction --output-path models/wti_spread_logistic.json
+          set -e
+          for C in WTI NATGAS RBOB; do
+            LC=$(echo "$C" | tr 'A-Z' 'a-z')
+            echo "::group::$C — ingest history"
+            uv run energy-etf-monitor ingest-phase0 --commodity "$C" --load
+            uv run energy-etf-monitor ingest-yahoo-curve-history --commodity "$C" \
+              --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" --load
+            echo "::endgroup::"
+            echo "::group::$C — features, train, predict"
+            uv run energy-etf-monitor build-feature-range --commodity "$C" \
+              --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" \
+              --as-of-time "23:00:00+00:00"
+            uv run energy-etf-monitor export-feature-cache --commodity "$C" --output-path "/tmp/$LC.parquet"
+            uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache "/tmp/$LC.parquet" \
+              --target-name price_direction --output-path "models/${LC}_price_logistic.json"
+            uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache "/tmp/$LC.parquet" \
+              --target-name spread_direction --output-path "models/${LC}_spread_logistic.json"
+            uv run energy-etf-monitor predict-daily --commodity "$C" \
+              --price-artifact "models/${LC}_price_logistic.json" \
+              --spread-artifact "models/${LC}_spread_logistic.json" --load || echo "predict skipped for $C"
+            echo "::endgroup::"
+          done
       - name: Commit model artifacts
         run: |
           git config user.name "github-actions[bot]"
