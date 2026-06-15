@@ -687,6 +687,28 @@ class IngestionRepository:
         statement = statement.order_by(FundDailyMetricRow.report_date.asc())
         return [_row_to_fund_metric(row) for row in self.session.exec(statement).all()]
 
+    def list_fund_holdings(
+        self,
+        *,
+        fund_ticker: str,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[FundHolding]:
+        statement = select(FundHoldingRow).where(
+            FundHoldingRow.fund_ticker == fund_ticker,
+            FundHoldingRow.quarantine.is_(False),
+        )
+        if start_date is not None:
+            statement = statement.where(FundHoldingRow.report_date >= start_date)
+        if end_date is not None:
+            statement = statement.where(FundHoldingRow.report_date <= end_date)
+        statement = statement.order_by(
+            FundHoldingRow.report_date.asc(),
+            FundHoldingRow.contract_month.asc(),
+            FundHoldingRow.holding_key.asc(),
+        )
+        return [_row_to_fund_holding(row) for row in self.session.exec(statement).all()]
+
     def list_cot_positions(
         self,
         *,

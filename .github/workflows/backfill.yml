@@ -1,15 +1,15 @@
 name: backfill
 
-# Manual one-shot (and re-runnable): rebuild a multi-year history of WTI feature rows from the
-# free data sources, train the model artifacts on it, and publish both the state DB and the models.
+# Manual one-shot (and re-runnable): rebuild a multi-year history of factor rows from the free data
+# sources and publish the refreshed state DB. Model training is intentionally out of scope.
 on:
   workflow_dispatch:
     inputs:
       start_date:
-        description: "Feature backfill start date (YYYY-MM-DD)"
+        description: "Factor backfill start date (YYYY-MM-DD)"
         default: "2024-06-15"
       end_date:
-        description: "Feature backfill end date (YYYY-MM-DD); blank = today"
+        description: "Factor backfill end date (YYYY-MM-DD); blank = today"
         default: ""
 
 permissions:
@@ -47,41 +47,25 @@ jobs:
         run: echo "end=${END:-$(date -u +%F)}" >> "$GITHUB_OUTPUT"
         env:
           END: ${{ inputs.end_date }}
-      - name: Backfill + train all commodities
+      - name: Backfill data and factor rows
         run: |
           set -e
+          uv run energy-etf-monitor ingest-etf-holdings --load || echo "official ETF holdings skipped"
+          uv run energy-etf-monitor ingest-etf-metrics --load || echo "ETF metric context skipped"
           for C in WTI NATGAS RBOB; do
             LC=$(echo "$C" | tr 'A-Z' 'a-z')
-            echo "::group::$C — ingest history"
+            echo "::group::$C ingest history"
             uv run energy-etf-monitor ingest-phase0 --commodity "$C" --load
             uv run energy-etf-monitor ingest-yahoo-curve-history --commodity "$C" \
               --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" --load
             echo "::endgroup::"
-            echo "::group::$C — features, train, predict"
+            echo "::group::$C factor rows"
             uv run energy-etf-monitor build-feature-range --commodity "$C" \
               --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" \
               --as-of-time "23:00:00+00:00"
             uv run energy-etf-monitor export-feature-cache --commodity "$C" --output-path "/tmp/$LC.parquet"
-            uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache "/tmp/$LC.parquet" \
-              --target-name price_direction --output-path "models/${LC}_price_logistic.json"
-            uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache "/tmp/$LC.parquet" \
-              --target-name spread_direction --output-path "models/${LC}_spread_logistic.json"
-            uv run energy-etf-monitor predict-daily --commodity "$C" \
-              --price-artifact "models/${LC}_price_logistic.json" \
-              --spread-artifact "models/${LC}_spread_logistic.json" --load || echo "predict skipped for $C"
             echo "::endgroup::"
           done
-      - name: Commit model artifacts
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add models/
-          if git diff --cached --quiet; then
-            echo "No model changes to commit."
-          else
-            git commit -m "chore: backfill-trained WTI model artifacts [skip ci]"
-            git push
-          fi
       - name: Push SQLite state
         env:
           GITHUB_TOKEN: ${{ github.token }}

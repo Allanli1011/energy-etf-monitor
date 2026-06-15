@@ -1,86 +1,96 @@
-# 07 — Deployment (scheduled runs on GitHub Actions)
+# 07 - Deployment
 
-Phase 5 runs the nightly pipeline on GitHub Actions instead of a local scheduler, so it executes in
-the cloud without your machine being on. Three workflows are in place:
+Deployment is a scheduled **monitoring** workflow on GitHub Actions. It refreshes data and reports;
+it does not train or run prediction models.
 
-- `.github/workflows/ci.yml` — lint + tests on every push to `main` and every PR.
-- `.github/workflows/nightly.yml` — scheduled `run-nightly` (ingest -> features -> predict -> model
-  health) on weekdays at 22:00 UTC, with an email alert on failure.
-- `.github/workflows/monthly-retrain.yml` — scheduled retrain on the 1st of each month, committing
-  refreshed `models/*.json` artifacts back to `main`.
+## Workflows
+
+- `.github/workflows/ci.yml`: lint + tests on push, pull request, and manual dispatch.
+- `.github/workflows/nightly.yml`: scheduled weekday monitoring run at 22:00 UTC.
+- `.github/workflows/backfill.yml`: manual source/factor backfill, no model training.
+- `.github/workflows/pages.yml`: builds and deploys the static dashboard to GitHub Pages.
+
+The old monthly retrain workflow has been removed.
+
+## Nightly Flow
+
+`run-nightly` performs:
+
+1. EIA/FRED/CFTC/futures ingestion.
+2. Official ETF holdings and NAV/share ingestion from USCF, Invesco, and ProShares.
+3. Fallback Yahoo ETF metric context ingestion where configured.
+4. News ingestion and optional alerts.
+5. Point-in-time factor-row construction.
+
+It does not require `models/*.json`, `gbm`, or model artifact secrets.
 
 ## Persistent State
 
-GitHub Actions runners are ephemeral, so the database must be restored before each run and saved
-afterward. The default deployment uses a SQLite file at:
+GitHub Actions runners are ephemeral. The default deployment persists SQLite on a dedicated
+`state` branch:
 
 ```text
 data/state/energy_etf_monitor.sqlite
 ```
 
-The workflows do this automatically:
+Each scheduled/manual workflow:
 
-1. Checkout `main`.
-2. Restore the SQLite file from the dedicated `state` branch if it exists.
-3. Run `init-db` and the pipeline command.
-4. Force-push a new single-file `state` branch containing the latest SQLite file.
+1. checks out `main`;
+2. restores the SQLite file from `state` if present;
+3. runs `init-db`;
+4. runs the monitoring or backfill command;
+5. force-pushes the refreshed SQLite file back to `state`.
 
-This avoids hosted database setup and avoids binary database history growth on `main`. The nightly
-and monthly workflows share the `sqlite-state` concurrency group, so manual runs queue instead of
-writing the database at the same time.
+The `sqlite-state` concurrency group prevents concurrent jobs from writing state at the same time.
 
-If you prefer a hosted database later, set `ENERGY_ETF_MONITOR_DATABASE_URL` to a
-`postgresql+psycopg://...` URL and remove the state-branch restore/push steps from the workflows.
-
-## Repository Secrets
-
-Settings -> Secrets and variables -> Actions -> New repository secret:
+## Required Secrets
 
 | Secret | Purpose |
 |---|---|
 | `ENERGY_ETF_MONITOR_EIA_API_KEY` | EIA Open Data API key |
 | `ENERGY_ETF_MONITOR_FRED_API_KEY` | FRED API key |
 | `ENERGY_ETF_MONITOR_CFTC_APP_TOKEN` | Optional CFTC Socrata app token |
-| `SMTP_SERVER`, `SMTP_PORT` | SMTP host/port for failure email, e.g. `smtp.gmail.com`, `465` |
-| `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP login; Gmail should use an App Password |
-| `ALERT_EMAIL_TO` | Where failure alerts are sent |
+| `SMTP_SERVER`, `SMTP_PORT` | SMTP host/port for failure email |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP login |
+| `ALERT_EMAIL_TO` | Failure-alert recipient |
 
 No database secret is required for the default SQLite deployment. The built-in `GITHUB_TOKEN` is
-used to push the `state` branch and monthly model commits.
+used to push the `state` branch.
 
-## Model Artifacts
-
-`run-nightly` skips prediction and stays green until model artifacts exist at
-`models/wti_price_logistic.json` and `models/wti_spread_logistic.json`. Once enough history has
-accumulated in the SQLite database, run the monthly retrain workflow manually from the Actions tab
-or train locally and commit artifacts to `models/` (see [models/README.md](../models/README.md)).
-
-## Email Alerts
-
-The nightly and monthly workflows' final step runs only `if: failure()` and sends mail via
-`dawidd6/action-send-mail`. For SMTP over SSL use port 465 with `secure: true`; for STARTTLS use
-587 and set `secure: false` in the workflow. As a zero-config fallback, GitHub also emails the repo
-owner on workflow failure when Actions email notifications are enabled in account settings.
-
-## Schedule and Manual Runs
-
-The nightly cron is `0 22 * * 1-5` (weekdays 22:00 UTC, after the US settlement window). The
-monthly retrain cron is `0 6 1 * *` (06:00 UTC on the 1st of each month). Trigger either workflow
-manually any time from the Actions tab via **Run workflow** (`workflow_dispatch`). GitHub may delay
-scheduled runs under load and disables schedules on repos with no activity for 60 days.
-
-## Optional Secrets (news enrichment & alerts)
+## Optional News/Alert Secrets
 
 | Secret / setting | Purpose |
 |---|---|
-| `ENERGY_ETF_MONITOR_MARKETAUX_API_KEY` | Enable the Marketaux news source |
-| `ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY` + `ENERGY_ETF_MONITOR_NEWS_CLASSIFIER=llm` | Use the LLM news classifier (`llm` extra); otherwise the free rule-based one is used |
-| `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL` + `..._ALERT_WEBHOOK_KIND` (`slack`/`ntfy`) | Post high-impact news alerts to Slack or ntfy |
+| `ENERGY_ETF_MONITOR_MARKETAUX_API_KEY` | Enable Marketaux news source |
+| `ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY` + `ENERGY_ETF_MONITOR_NEWS_CLASSIFIER=llm` | Enable optional LLM classifier |
+| `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL` + `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_KIND` | Post high-impact news alerts to Slack or ntfy |
 
-All are optional. Without them the pipeline runs on free GDELT + RSS news and the rule-based
-classifier, and surfaces alerts in logs / the dashboard.
+Without optional secrets the pipeline still runs on EIA/FRED/CFTC/USCF/Invesco/ProShares/Yahoo
+fallback/GDELT/RSS and the rule-based classifier.
+
+## Manual Backfill
+
+Use `.github/workflows/backfill.yml` from the Actions tab to rebuild source/factor history. It:
+
+- restores state;
+- refreshes official ETF snapshots and any configured fallback ETF metrics;
+- ingests each commodity's phase-0 sources;
+- backfills historical curve rows;
+- builds factor rows and exports temporary Parquet caches;
+- pushes only the SQLite state branch.
+
+It intentionally does not commit model artifacts.
+
+## Pages
+
+`pages.yml` rebuilds the static HTML report after pushes, successful nightly runs, successful
+backfills, or manual dispatch. It restores SQLite state first, then runs:
+
+```bash
+uv run energy-etf-monitor init-db
+uv run energy-etf-monitor render-report --output-dir site
+```
 
 ## Node Runtime
 
-The workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt the JavaScript actions onto
-Node 24 ahead of GitHub's default switch; bump action majors when Node-24-native releases land.
+The workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt JavaScript actions onto Node 24.

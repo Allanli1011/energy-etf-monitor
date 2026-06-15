@@ -286,6 +286,108 @@ def test_fetch_uso_pcf_command_loads_metric_and_holdings(monkeypatch) -> None:
     assert "Loaded 3 rows" in result.output
 
 
+def test_fetch_uso_pcf_without_url_uses_official_holdings_api(monkeypatch) -> None:
+    loaded = {}
+
+    class FakeSnapshot:
+        metric = object()
+        holdings = [object(), object(), object()]
+
+    class FakeConnector:
+        def __init__(self, **kwargs) -> None:
+            loaded["connector_kwargs"] = kwargs
+
+        def fetch_latest(self, *, fund_ticker: str):
+            loaded["fund_ticker"] = fund_ticker
+            return FakeSnapshot()
+
+    monkeypatch.setattr(cli, "UscfHoldingsConnector", FakeConnector)
+
+    result = runner.invoke(cli.app, ["fetch-uso-pcf"])
+
+    assert result.exit_code == 0
+    assert loaded["fund_ticker"] == "USO"
+    assert "Fetched USO official holdings with 3 holdings" in result.output
+
+
+def test_ingest_etf_holdings_defaults_to_official_registry_funds(monkeypatch) -> None:
+    fetched: list[tuple[str, str]] = []
+    loaded: dict[str, object] = {}
+
+    class FakeSnapshot:
+        def __init__(self, ticker: str) -> None:
+            self.metric = f"metric-{ticker}"
+            self.holdings = [f"holding-{ticker}-1", f"holding-{ticker}-2"]
+
+    class FakeUscfConnector:
+        def __init__(self, **kwargs) -> None:
+            loaded["uscf_connector_kwargs"] = kwargs
+
+        def fetch_latest(self, *, fund_ticker: str):
+            fetched.append(("USCF", fund_ticker))
+            return FakeSnapshot(fund_ticker)
+
+    class FakeInvescoConnector:
+        def __init__(self, **kwargs) -> None:
+            loaded["invesco_connector_kwargs"] = kwargs
+
+        def fetch_latest(self, *, fund_ticker: str):
+            fetched.append(("Invesco", fund_ticker))
+            return FakeSnapshot(fund_ticker)
+
+    class FakeProSharesConnector:
+        def __init__(self, **kwargs) -> None:
+            loaded["proshares_connector_kwargs"] = kwargs
+
+        def fetch_latest(self, *, fund_ticker: str):
+            fetched.append(("ProShares", fund_ticker))
+            return FakeSnapshot(fund_ticker)
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            pass
+
+        def upsert_fund_daily_metrics(self, metrics):
+            loaded["metrics"] = metrics
+            return cli.LoadResult(inserted=len(metrics))
+
+        def upsert_fund_holdings(self, holdings):
+            loaded["holdings"] = holdings
+            return cli.LoadResult(inserted=len(holdings))
+
+    monkeypatch.setattr(cli, "UscfHoldingsConnector", FakeUscfConnector)
+    monkeypatch.setattr(cli, "InvescoHoldingsConnector", FakeInvescoConnector)
+    monkeypatch.setattr(cli, "ProSharesHoldingsConnector", FakeProSharesConnector)
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+
+    result = runner.invoke(cli.app, ["ingest-etf-holdings", "--load"])
+
+    assert result.exit_code == 0
+    fetched_tickers = [ticker for _issuer, ticker in fetched]
+    assert {"USO", "USL", "UNG", "UNL", "UGA"}.issubset(fetched_tickers)
+    assert ("Invesco", "DBO") in fetched
+    assert {ticker for issuer, ticker in fetched if issuer == "ProShares"} >= {
+        "UCO",
+        "SCO",
+        "BOIL",
+        "KOLD",
+    }
+    assert loaded["metrics"] == [f"metric-{ticker}" for ticker in fetched_tickers]
+    assert loaded["holdings"] == [
+        holding
+        for ticker in fetched_tickers
+        for holding in [f"holding-{ticker}-1", f"holding-{ticker}-2"]
+    ]
+    assert "official ETF snapshots" in result.output
+
+
 def test_derive_uso_crowding_command_loads_metric(monkeypatch) -> None:
     loaded = {}
 
@@ -916,12 +1018,6 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
 
     feature_row = FakeFeatureRow()
 
-    class FakePrediction:
-        commodity = "WTI"
-        report_date = date(2026, 6, 12)
-        price_up_probability = 0.62
-        spread_up_probability = 0.38
-
     class FakeIngest:
         def __init__(self, *, settings, commodities=None):
             loaded["ingest_settings"] = settings
@@ -952,42 +1048,24 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
             loaded["feature_records"] = records
             return cli.LoadResult(inserted=1)
 
-        def latest_daily_feature_row(self, *, commodity, as_of):
-            return feature_row
-
-        def upsert_daily_predictions(self, records):
-            loaded["prediction_records"] = records
-            return cli.LoadResult(inserted=1)
-
         def upsert_news_articles(self, records):
             loaded["news_records"] = records
             return cli.LoadResult(inserted=len(records))
-
-        def list_daily_predictions(self, *, commodity):
-            return ["prediction"]
-
-        def list_daily_feature_rows(self, *, commodity):
-            return ["feature"]
-
-    class FakeHealth:
-        outcomes = ["o"]
-        metrics = {"price_model_accuracy": 0.5}
 
     monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeIngest)
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
     monkeypatch.setattr(
         cli, "_collect_news", lambda settings, *, timespan, max_records: []
     )
-    monkeypatch.setattr(cli, "load_artifact", lambda path: path)
     monkeypatch.setattr(
         cli,
-        "predict_two_head",
-        lambda **kwargs: FakePrediction(),
+        "_ingest_official_etf_holdings",
+        lambda settings: loaded.setdefault("official_etf", True),
     )
     monkeypatch.setattr(
         cli,
-        "build_model_health_report",
-        lambda predictions, feature_rows, *, as_of, commodity: FakeHealth(),
+        "_ingest_yahoo_etf_metric_context",
+        lambda settings: loaded.setdefault("yahoo_etf", True),
     )
 
     result = runner.invoke(
@@ -1006,13 +1084,14 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
     assert result.exit_code == 0
     assert loaded["ingest_run"]["load"] is True
     assert loaded["ingest_run"]["trade_date"] == date(2026, 6, 12)
+    assert loaded["official_etf"] is True
+    assert loaded["yahoo_etf"] is True
     assert loaded["feature_records"] == [feature_row]
-    assert "P(price up)=0.620" in result.output
-    assert "Scored 1 predictions" in result.output
-    assert "Nightly run complete." in result.output
+    assert "Building factor row" in result.output
+    assert "Nightly monitoring run complete." in result.output
 
 
-def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> None:
+def test_run_nightly_command_runs_without_prediction_artifacts(monkeypatch) -> None:
     runner = CliRunner()
 
     class FakeFeatureRow:
@@ -1047,16 +1126,6 @@ def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> 
         def upsert_news_articles(self, records):
             return cli.LoadResult(inserted=len(records))
 
-        def list_daily_predictions(self, *, commodity):
-            return []
-
-        def list_daily_feature_rows(self, *, commodity):
-            return []
-
-    class FakeHealth:
-        outcomes = []
-        metrics = {}
-
     monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeIngest)
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
     monkeypatch.setattr(
@@ -1064,15 +1133,21 @@ def test_run_nightly_command_skips_prediction_without_artifacts(monkeypatch) -> 
     )
     monkeypatch.setattr(
         cli,
-        "build_model_health_report",
-        lambda predictions, feature_rows, *, as_of, commodity: FakeHealth(),
+        "_ingest_official_etf_holdings",
+        lambda settings: None,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_ingest_yahoo_etf_metric_context",
+        lambda settings: None,
     )
 
     result = runner.invoke(cli.app, ["run-nightly"])
 
     assert result.exit_code == 0
-    assert "Skipping prediction" in result.output
-    assert "Nightly run complete." in result.output
+    assert "Predicting" not in result.output
+    assert "Model health" not in result.output
+    assert "Nightly monitoring run complete." in result.output
 
 
 def test_ingest_news_command_reports_alerts_and_loads(monkeypatch) -> None:
@@ -1244,3 +1319,82 @@ def test_model_health_command_scores_and_reports(monkeypatch, tmp_path) -> None:
     assert "Scored 2 WTI predictions" in result.output
     assert "price_model_accuracy=0.7500" in result.output
     assert str(FakeExported.metrics_path) in result.output
+
+
+def test_ingest_etf_metrics_defaults_to_no_officially_covered_fallbacks(monkeypatch) -> None:
+    fetched: list[str] = []
+    loaded: dict[str, object] = {}
+
+    class FakeConnector:
+        def __init__(self, **kwargs) -> None:
+            loaded["connector_kwargs"] = kwargs
+
+        def fetch_metric(self, *, fund_ticker: str):
+            fetched.append(fund_ticker)
+            return f"metric-{fund_ticker}"
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            pass
+
+        def upsert_fund_daily_metrics(self, metrics):
+            loaded["metrics"] = metrics
+            return cli.LoadResult(inserted=len(metrics))
+
+    monkeypatch.setattr(cli, "YahooEtfMetricsConnector", FakeConnector)
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+
+    result = runner.invoke(cli.app, ["ingest-etf-metrics", "--load"])
+
+    assert result.exit_code == 0
+    assert fetched == []
+    assert "metrics" not in loaded
+    assert "Fetched 0 ETF metric snapshots" in result.output
+
+
+def test_ingest_etf_metrics_fetches_explicit_yahoo_fallback_funds(monkeypatch) -> None:
+    fetched: list[str] = []
+    loaded: dict[str, object] = {}
+
+    class FakeConnector:
+        def __init__(self, **kwargs) -> None:
+            loaded["connector_kwargs"] = kwargs
+
+        def fetch_metric(self, *, fund_ticker: str):
+            fetched.append(fund_ticker)
+            return f"metric-{fund_ticker}"
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            pass
+
+        def upsert_fund_daily_metrics(self, metrics):
+            loaded["metrics"] = metrics
+            return cli.LoadResult(inserted=len(metrics))
+
+    monkeypatch.setattr(cli, "YahooEtfMetricsConnector", FakeConnector)
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+
+    result = runner.invoke(
+        cli.app,
+        ["ingest-etf-metrics", "--fund", "DBO", "--fund", "UCO", "--load"],
+    )
+
+    assert result.exit_code == 0
+    assert fetched == ["DBO", "UCO"]
+    assert loaded["metrics"] == ["metric-DBO", "metric-UCO"]
+    assert "ETF metric snapshots" in result.output

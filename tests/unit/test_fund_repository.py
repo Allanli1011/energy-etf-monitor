@@ -29,6 +29,29 @@ def _metric(report_date: date, shares: float, nav: float = 80.0) -> FundDailyMet
     )
 
 
+def _holding(
+    *,
+    fund_ticker: str,
+    holding_key: str,
+    report_date: date,
+    contract_month: date,
+) -> FundHolding:
+    return FundHolding(
+        source="uscf",
+        fund_ticker=fund_ticker,
+        holding_key=holding_key,
+        holding_name=f"{fund_ticker} {holding_key}",
+        instrument_type="Futures",
+        ticker="CL" if fund_ticker == "USO" else "NG",
+        report_date=report_date,
+        knowledge_date=datetime.combine(report_date, datetime.min.time(), tzinfo=UTC),
+        contract_month=contract_month,
+        quantity=1_000,
+        market_value=50_000_000,
+        percent_nav=25.0,
+    )
+
+
 def test_fund_metric_upsert_derives_implied_flow_from_previous_row(session: Session) -> None:
     repository = IngestionRepository(session)
 
@@ -70,4 +93,50 @@ def test_fund_holding_upsert_is_idempotent_by_holding_key(session: Session) -> N
     assert len(rows) == 1
     assert rows[0].quantity == 8_750
     assert rows[0].market_value == 350_000_000
+
+
+def test_list_fund_holdings_filters_by_fund_window_and_sorts(session: Session) -> None:
+    repository = IngestionRepository(session)
+    repository.upsert_fund_holdings(
+        [
+            _holding(
+                fund_ticker="USO",
+                holding_key="uso-third",
+                report_date=date(2026, 6, 12),
+                contract_month=date(2026, 9, 1),
+            ),
+            _holding(
+                fund_ticker="UNG",
+                holding_key="ung-front",
+                report_date=date(2026, 6, 12),
+                contract_month=date(2026, 7, 1),
+            ),
+            _holding(
+                fund_ticker="USO",
+                holding_key="uso-old",
+                report_date=date(2026, 6, 11),
+                contract_month=date(2026, 8, 1),
+            ),
+            _holding(
+                fund_ticker="USO",
+                holding_key="uso-front",
+                report_date=date(2026, 6, 12),
+                contract_month=date(2026, 7, 1),
+            ),
+        ]
+    )
+
+    rows = repository.list_fund_holdings(fund_ticker="USO")
+    window_rows = repository.list_fund_holdings(
+        fund_ticker="USO",
+        start_date=date(2026, 6, 12),
+        end_date=date(2026, 6, 12),
+    )
+
+    assert [(row.report_date, row.contract_month, row.holding_key) for row in rows] == [
+        (date(2026, 6, 11), date(2026, 8, 1), "uso-old"),
+        (date(2026, 6, 12), date(2026, 7, 1), "uso-front"),
+        (date(2026, 6, 12), date(2026, 9, 1), "uso-third"),
+    ]
+    assert [row.holding_key for row in window_rows] == ["uso-front", "uso-third"]
 

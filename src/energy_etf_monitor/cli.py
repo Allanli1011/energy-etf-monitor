@@ -7,6 +7,11 @@ import typer
 from energy_etf_monitor.commodities import COMMODITIES, CommodityConfig, commodity_config
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.dashboard.static_report import write_static_site
+from energy_etf_monitor.etfs import (
+    ETF_FUNDS,
+    default_official_holding_tickers,
+    default_yahoo_metric_tickers,
+)
 from energy_etf_monitor.features.export import export_daily_features_to_parquet
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.ingestion.cftc import CftcCotConnector
@@ -14,13 +19,15 @@ from energy_etf_monitor.ingestion.cme import CmeSettlementCurveProvider
 from energy_etf_monitor.ingestion.eia import EiaSeriesConnector
 from energy_etf_monitor.ingestion.fred import FredSeriesConnector
 from energy_etf_monitor.ingestion.gdelt import GdeltDocConnector
+from energy_etf_monitor.ingestion.invesco import InvescoHoldingsConnector
 from energy_etf_monitor.ingestion.marketaux import MarketauxConnector
+from energy_etf_monitor.ingestion.proshares import ProSharesHoldingsConnector
 from energy_etf_monitor.ingestion.rss import DEFAULT_FEEDS, RssNewsConnector
 from energy_etf_monitor.ingestion.runner import (
     BatchIngestionResult,
     PhaseZeroIngestionRunner,
 )
-from energy_etf_monitor.ingestion.uscf import UscfPcfConnector
+from energy_etf_monitor.ingestion.uscf import UscfHoldingsConnector, UscfPcfConnector
 from energy_etf_monitor.ingestion.yahoo import YahooEtfMetricsConnector, YahooFuturesConnector
 from energy_etf_monitor.modeling.artifacts import save_model_artifact, train_logistic_artifact
 from energy_etf_monitor.modeling.baselines import evaluate_walk_forward_baselines
@@ -95,22 +102,65 @@ def _resolve_commodities(names: list[str] | None) -> list[CommodityConfig]:
 
 @app.command()
 def fetch_uso_pcf(
-    url: str = typer.Option(..., "--url"),
+    url: str | None = typer.Option(None, "--url"),
     load: bool = typer.Option(False, "--load"),
 ) -> None:
-    """Fetch and parse the latest USO PCF file."""
+    """Fetch and parse the latest USO holdings.
+
+    Without ``--url`` this uses the official USCF holdings/dailyprice API that powers the public
+    holdings page. ``--url`` remains available for replaying an explicit legacy PCF CSV.
+    """
 
     settings = Settings()
-    snapshot = UscfPcfConnector(
-        fund_ticker="USO",
-        pcf_url=url,
-        raw_root_dir=settings.raw_data_dir,
-    ).fetch_latest()
-    typer.echo(f"Fetched USO PCF with {len(snapshot.holdings)} holdings.")
+    if url:
+        snapshot = UscfPcfConnector(
+            fund_ticker="USO",
+            pcf_url=url,
+            raw_root_dir=settings.raw_data_dir,
+        ).fetch_latest()
+        typer.echo(f"Fetched USO PCF with {len(snapshot.holdings)} holdings.")
+    else:
+        snapshot = UscfHoldingsConnector(
+            raw_root_dir=settings.raw_data_dir,
+        ).fetch_latest(fund_ticker="USO")
+        typer.echo(f"Fetched USO official holdings with {len(snapshot.holdings)} holdings.")
     if load:
         with IngestionRepository.from_settings(settings) as repository:
             metric_result = repository.upsert_fund_daily_metrics([snapshot.metric])
             holding_result = repository.upsert_fund_holdings(snapshot.holdings)
+            _echo_load_result(
+                LoadResult(
+                    inserted=metric_result.inserted + holding_result.inserted,
+                    updated=metric_result.updated + holding_result.updated,
+                    quarantined=metric_result.quarantined + holding_result.quarantined,
+                )
+            )
+
+
+@app.command()
+def ingest_etf_holdings(
+    fund: Annotated[list[str] | None, typer.Option("--fund")] = None,
+    load: bool = typer.Option(False, "--load"),
+) -> None:
+    """Fetch official ETF daily NAV/share/holdings snapshots and optionally load them."""
+
+    settings = Settings()
+    tickers = (
+        [ticker.upper() for ticker in fund]
+        if fund
+        else list(default_official_holding_tickers())
+    )
+    snapshots = _fetch_official_etf_snapshots(settings=settings, tickers=tickers)
+    metrics = [snapshot.metric for snapshot in snapshots]
+    holdings = [holding for snapshot in snapshots for holding in snapshot.holdings]
+    typer.echo(
+        f"Fetched {len(snapshots)} official ETF snapshots "
+        f"({len(metrics)} metrics, {len(holdings)} holdings; requested {', '.join(tickers)})."
+    )
+    if load and snapshots:
+        with IngestionRepository.from_settings(settings) as repository:
+            metric_result = repository.upsert_fund_daily_metrics(metrics)
+            holding_result = repository.upsert_fund_holdings(holdings)
             _echo_load_result(
                 LoadResult(
                     inserted=metric_result.inserted + holding_result.inserted,
@@ -453,31 +503,41 @@ def predict_daily(
 
 @app.command()
 def run_nightly(
-    price_artifact: str | None = typer.Option(None, "--price-artifact"),
-    spread_artifact: str | None = typer.Option(None, "--spread-artifact"),
+    price_artifact: str | None = typer.Option(
+        None,
+        "--price-artifact",
+        help="Deprecated; prediction is no longer part of the default monitoring run.",
+    ),
+    spread_artifact: str | None = typer.Option(
+        None,
+        "--spread-artifact",
+        help="Deprecated; prediction is no longer part of the default monitoring run.",
+    ),
     commodity: str = typer.Option("WTI", "--commodity"),
     trade_date: str | None = typer.Option(None, "--trade-date"),
     cot_limit: int = typer.Option(5000, "--cot-limit"),
 ) -> None:
-    """Full nightly pipeline: ingest -> features -> (predict) -> model health.
+    """Nightly monitoring pipeline: ingest source data -> refresh ETF data -> build factor rows."""
 
-    Prediction is skipped (not an error) when model artifacts are absent, so the job stays green
-    while history accumulates before the first models are trained. Genuine failures (ingest, DB)
-    propagate a non-zero exit so the scheduler can alert.
-    """
-
+    _ = (price_artifact, spread_artifact)
     settings = Settings()
     curve_date = date.fromisoformat(trade_date) if trade_date else date.today()
-    predicted_at = datetime.now(UTC)
+    as_of = datetime.now(UTC)
 
-    typer.echo("[1/5] Ingesting Phase 0 sources...")
+    typer.echo("[1/5] Ingesting futures, inventory, COT, and macro sources...")
     ingest = PhaseZeroIngestionRunner(
         settings=settings,
         commodities=list(COMMODITIES.values()),
     ).run(load=True, trade_date=curve_date, cot_limit=cot_limit)
     _echo_batch_result(ingest)
 
-    typer.echo("[2/5] Ingesting news...")
+    typer.echo("[2/5] Ingesting official ETF holdings...")
+    _ingest_official_etf_holdings(settings)
+
+    typer.echo("[3/5] Ingesting fallback ETF metric context...")
+    _ingest_yahoo_etf_metric_context(settings)
+
+    typer.echo("[4/5] Ingesting news...")
     try:
         news = _collect_news(settings, timespan="1d", max_records=75)
         with IngestionRepository.from_settings(settings) as repository:
@@ -489,45 +549,76 @@ def run_nightly(
         typer.echo(f"News ingestion skipped: {exc}")
 
     with IngestionRepository.from_settings(settings) as repository:
-        typer.echo("[3/5] Building feature row...")
+        typer.echo("[5/5] Building factor row...")
         feature_row = repository.derive_feature_row(
-            config=commodity_config(commodity), as_of=predicted_at
+            config=commodity_config(commodity), as_of=as_of
         )
         repository.upsert_daily_feature_rows([feature_row])
         typer.echo(f"Feature row for {feature_row.report_date} ready.")
 
-        typer.echo("[4/5] Predicting...")
-        if _both_artifacts_exist(price_artifact, spread_artifact):
-            latest = repository.latest_daily_feature_row(commodity=commodity, as_of=predicted_at)
-            if latest is None:
-                raise typer.BadParameter(
-                    f"No {commodity} feature row available as of {predicted_at.isoformat()}."
-                )
-            prediction = predict_two_head(
-                feature_row=latest,
-                price_artifact=load_artifact(Path(price_artifact)),
-                spread_artifact=load_artifact(Path(spread_artifact)),
-                predicted_at=predicted_at,
-            )
-            repository.upsert_daily_predictions([prediction])
-            typer.echo(
-                f"{prediction.commodity} {prediction.report_date}: "
-                f"P(price up)={prediction.price_up_probability:.3f} "
-                f"P(spread up)={prediction.spread_up_probability:.3f}"
-            )
-        else:
-            typer.echo("Skipping prediction: model artifacts not provided or not found.")
+    typer.echo("Nightly monitoring run complete.")
 
-        typer.echo("[5/5] Model health...")
-        predictions = repository.list_daily_predictions(commodity=commodity)
-        feature_rows = repository.list_daily_feature_rows(commodity=commodity)
-    health = build_model_health_report(
-        predictions, feature_rows, as_of=predicted_at, commodity=commodity
+
+def _ingest_official_etf_holdings(settings: Settings) -> None:
+    tickers = list(default_official_holding_tickers())
+    snapshots = _fetch_official_etf_snapshots(settings=settings, tickers=tickers)
+    if not snapshots:
+        typer.echo("No official ETF holdings loaded.")
+        return
+    metrics = [snapshot.metric for snapshot in snapshots]
+    holdings = [holding for snapshot in snapshots for holding in snapshot.holdings]
+    with IngestionRepository.from_settings(settings) as repository:
+        metric_result = repository.upsert_fund_daily_metrics(metrics)
+        holding_result = repository.upsert_fund_holdings(holdings)
+    _echo_load_result(
+        LoadResult(
+            inserted=metric_result.inserted + holding_result.inserted,
+            updated=metric_result.updated + holding_result.updated,
+            quarantined=metric_result.quarantined + holding_result.quarantined,
+        )
     )
-    typer.echo(f"Scored {len(health.outcomes)} predictions with realized outcomes.")
-    if health.metrics:
-        typer.echo(_format_metrics(health.metrics))
-    typer.echo("Nightly run complete.")
+
+
+def _fetch_official_etf_snapshots(settings: Settings, tickers: list[str]):
+    connectors = {
+        "USCF": UscfHoldingsConnector(raw_root_dir=settings.raw_data_dir),
+        "INVESCO": InvescoHoldingsConnector(raw_root_dir=settings.raw_data_dir),
+        "PROSHARES": ProSharesHoldingsConnector(raw_root_dir=settings.raw_data_dir),
+    }
+    snapshots = []
+    for ticker in tickers:
+        fund_config = ETF_FUNDS.get(ticker)
+        if fund_config is None:
+            typer.echo(f"  ! skipped {ticker} - ETF is not in the local registry")
+            continue
+        connector = connectors.get(fund_config.issuer.upper())
+        if connector is None:
+            typer.echo(f"  ! skipped {ticker} - no official connector for {fund_config.issuer}")
+            continue
+        try:
+            snapshots.append(connector.fetch_latest(fund_ticker=ticker))
+        except Exception as exc:  # one issuer endpoint failure should not drop the whole batch
+            typer.echo(f"  ! skipped {ticker} - {exc}")
+    return snapshots
+
+
+def _ingest_yahoo_etf_metric_context(settings: Settings) -> None:
+    tickers = list(default_yahoo_metric_tickers())
+    if not tickers:
+        typer.echo("No fallback ETF metric tickers configured.")
+        return
+    connector = YahooEtfMetricsConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
+    metrics = []
+    for ticker in tickers:
+        try:
+            metrics.append(connector.fetch_metric(fund_ticker=ticker))
+        except Exception as exc:  # crumb/rate-limit failures should not sink the whole run
+            typer.echo(f"  ! skipped {ticker} - {exc}")
+    if not metrics:
+        typer.echo("No fallback ETF metrics loaded.")
+        return
+    with IngestionRepository.from_settings(settings) as repository:
+        _echo_load_result(repository.upsert_fund_daily_metrics(metrics))
 
 
 def _both_artifacts_exist(price_artifact: str | None, spread_artifact: str | None) -> bool:
@@ -833,14 +924,10 @@ def ingest_etf_metrics(
     fund: Annotated[list[str] | None, typer.Option("--fund")] = None,
     load: bool = typer.Option(False, "--load"),
 ) -> None:
-    """Fetch daily ETF AUM/price from Yahoo and derive creation/redemption flow (going-forward)."""
+    """Fetch Yahoo ETF AUM/price context for explicit or non-official fallback funds."""
 
     settings = Settings()
-    tickers = [f.upper() for f in fund] if fund else [
-        config.crowding_fund_ticker
-        for config in COMMODITIES.values()
-        if config.crowding_fund_ticker
-    ]
+    tickers = [f.upper() for f in fund] if fund else list(default_yahoo_metric_tickers())
     connector = YahooEtfMetricsConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
     metrics = []
     for ticker in tickers:

@@ -37,35 +37,12 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - name: Install (with gbm extra)
-        run: uv sync --extra gbm
+      - name: Install
+        run: uv sync
       - name: Initialize database schema
         run: uv run energy-etf-monitor init-db
-      - name: Run nightly pipeline
-        run: |
-          uv run energy-etf-monitor run-nightly \
-            --price-artifact models/wti_price_logistic.json \
-            --spread-artifact models/wti_spread_logistic.json
-      - name: Predict NatGas and RBOB
-        # run-nightly already ingested all commodities' data; build + score their latest row too,
-        # if their models exist (created by the backfill workflow). Best-effort: never fail the run.
-        run: |
-          NOW=$(date -u +%FT%H:%M:%S+00:00)
-          for C in NATGAS RBOB; do
-            LC=$(echo "$C" | tr 'A-Z' 'a-z')
-            if [ -f "models/${LC}_price_logistic.json" ] && [ -f "models/${LC}_spread_logistic.json" ]; then
-              uv run energy-etf-monitor build-features --commodity "$C" --as-of "$NOW" || true
-              uv run energy-etf-monitor predict-daily --commodity "$C" \
-                --price-artifact "models/${LC}_price_logistic.json" \
-                --spread-artifact "models/${LC}_spread_logistic.json" --load || echo "predict skipped for $C"
-            else
-              echo "No $C models yet; run the backfill workflow to create them."
-            fi
-          done
-      - name: Ingest ETF metrics (creation/redemption)
-        # Going-forward ETF AUM/price from Yahoo -> implied creation/redemption flow.
-        # Best-effort (crumb-gated endpoint): never fail the run.
-        run: uv run energy-etf-monitor ingest-etf-metrics --load || echo "ETF metrics skipped"
+      - name: Run nightly monitoring pipeline
+        run: uv run energy-etf-monitor run-nightly
       - name: Push SQLite state
         env:
           GITHUB_TOKEN: ${{ github.token }}

@@ -1,121 +1,130 @@
-# 03 — Architecture
+# 03 - Architecture
 
-Chosen approach: **nightly batch + lightweight gradient-boosted models**. All inputs are
-daily/weekly low-frequency data, so a single-machine nightly run matches the cadence exactly — no
-streaming, no Kafka, no enterprise orchestration. Three correctness-critical pieces are grafted in
-from a heavier "data-platform" design; everything else from that design is deliberately rejected
-as over-engineering for a single user.
+Chosen approach: **nightly data monitoring + issuer ETF holdings first**. The system no longer
+treats predictive modeling as the product center. The core value is a reliable, point-in-time data
+view of ETF flows, issuer holdings, futures curves, inventories, COT positioning, macro context,
+and news.
 
 ![architecture](architecture.svg)
 
 ## Layers
 
+```text
+free and issuer data sources
+   -> idempotent connectors                         [data/raw/<source>/<date>/]
+   -> SQLModel DB (SQLite default; Postgres optional) [+ quality quarantine]
+   -> factor rows and dashboard projections          [ETF flow, exposure, curve, COT, inventory]
+   -> Streamlit dashboard + static HTML report + rule-based alerts
 ```
-free data sources
-   -> idempotent connectors (per source)            [data/raw/<source>/<date>/]
-   -> SQLModel DB (SQLite default; Postgres optional) [+ thin quality gate / quarantine]
-   -> feature engineering                            [carry, COT index, inventory surprise, crowding]
-   -> { price-direction model | roll-spread model }  [LightGBM, two heads]
-   -> Streamlit dashboard + news-impact lane + rule-based alerts
-```
 
-### 1. Ingestion
-- Python 3.12 + `httpx`. One idempotent connector per source implementing a common
-  `fetch / validate / normalize / load` interface.
-- Raw payloads saved dated to `data/raw/<source>/<date>/` before parsing (provenance + replay).
-- **Graft #1 — swappable curve-provider interface:** the CME settlement scraper (the most fragile
-  component) sits behind a `CurveProvider` protocol so it can be replaced by CME DataMine /
-  Barchart OnDemand later without touching downstream code.
+## Ingestion
 
-### 2. Storage
-- **SQLite by default** via SQLAlchemy / SQLModel. GitHub Actions persists the SQLite file on a
-  dedicated `state` branch with force-push, so scheduled runs need no hosted database secret.
-  PostgreSQL remains supported by setting `ENERGY_ETF_MONITOR_DATABASE_URL` to a
-  `postgresql+psycopg://...` URL.
-- **Graft #2 — dual timestamps:** every table carries both `report_date` and `knowledge_date`.
-  This is what stops the backtest from lying.
-- **Graft #3 — thin quality gate:** lightweight `pydantic` assertions (NOT Great Expectations) —
-  freshness checks against the release calendar (EIA Wed/Thu, COT Fri), range/plausibility checks
-  (no negative OI, no >50% day-over-day AUM jump, no COT date gaps). Failures get a `quarantine`
-  flag so bad batches never silently enter feature builds.
-- The initial implementation stores `knowledge_date` as UTC-naive at the database boundary so
-  SQLite tests and Postgres deployments use one comparable representation of first-known time.
-- Parquet files in `data/processed/` read via DuckDB are the analytical cache so backtests never
-  hit the live DB.
+- Python 3.12 + `httpx`; one connector per source.
+- Raw payloads are saved before parsing for provenance and replay.
+- USCF ETF data is fetched from the official public holdings stack:
+  - `api_key.php` provides the bearer token and MarketingAPI base URL.
+  - `dailyprice/{ticker}` provides NAV, shares outstanding, total NAV, and
+    creation/redemption shares.
+  - `holding/{ticker}/full` provides issuer holdings, weights, market value, and futures symbols.
+- Invesco `DBO` data is fetched from the official DNG API:
+  - `prices` provides NAV, shares outstanding, total market value, and bid/ask context.
+  - `holdings/fund` provides issuer holdings and percent of net assets.
+- ProShares `UCO`, `SCO`, `BOIL`, and `KOLD` data is parsed from the official fund pages:
+  - the price/snapshot blocks provide NAV and net assets.
+  - the holdings table provides exposure weights, descriptions, contracts, and notional values.
+- Yahoo ETF metrics are a fallback context source for explicit cross-checks or products without an
+  issuer connector.
+- The futures curve provider remains swappable so CME DataMine, Barchart, or another paid source
+  can replace the free provider later.
 
-### 3. Feature engineering
-- pandas / polars + DuckDB, run nightly after ingestion. ~15–25 features per commodity per day,
-  all publication-lag-adjusted. See [05-prediction-methodology.md](05-prediction-methodology.md).
-- The initial WTI feature builder writes `daily_feature_rows` from an explicit decision timestamp
-  and now includes curve spreads/curvature, front-month returns, carry changes, COT
-  net/z-score/index, seasonal inventory surprise, macro levels, USO crowding, and roll-window
-  interaction features.
-- `export-wti-feature-cache` writes persisted feature rows to Parquet in `data/processed/`, using
-  DuckDB as the local cache writer/reader for modeling and backtests.
+## Storage
 
-### 4. Modeling
-- Two heads: `price_direction` and `spread_direction`, behind one `PredictionModel` interface
-  (`predict` + `raw_contributions`). Two backends implement it: a hand-rolled logistic baseline
-  (always available) and **LightGBM** (optional `gbm` extra). A dispatching `load_artifact` reads
-  each saved artifact's `model_type` and lazily imports LightGBM only when needed, so the core
-  install never requires the native dependency.
-- Pooled cross-commodity training (commodity-id as a categorical) to fight thin sample size.
-- Expanding-window walk-forward, monthly retrain, evaluated across the 2008 / 2014–16 / 2020 /
-  2021–22 regimes.
-- The first implementation slice reads the Parquet feature cache, builds forward price/spread
-  direction targets, and evaluates naive-persistence plus lightweight logistic baselines with
-  expanding walk-forward windows. It can also persist the current logistic baseline as a JSON model
-  artifact for daily inference.
-- **Purged walk-forward (look-ahead fix):** each example carries `target_report_date` (the date
-  its label becomes known, horizon trading days ahead). The walk-forward trainer purges any
-  training example whose `target_report_date >= the decision date`, so labels that were not yet
-  realized never leak into training (this also fixes the naive-persistence baseline). A regression
-  test locks the embargo.
+- SQLite is the default; PostgreSQL remains supported with `ENERGY_ETF_MONITOR_DATABASE_URL`.
+- Every record stores both `report_date` and `knowledge_date`.
+- The repository performs idempotent upserts on natural keys.
+- The quality gate quarantines rows for point-in-time impossibilities and basic plausibility
+  failures.
+- Raw payloads are stored under `data/raw/`; processed factor exports live under `data/processed/`.
 
-### 5. Inference
-- `predict-daily` loads the latest point-in-time feature row (`knowledge_date <= as_of`), scores it
-  with the price and spread logistic artifacts, and writes a row to the `daily_predictions` table:
-  `price_up_probability`, `spread_up_probability`, a naive-persistence reference for each head,
-  both `*_model_version` stamps, and `*_top_drivers` (the linear log-odds contributions
-  `weight * value / scale` ranked by magnitude — an exact local explanation for the logistic
-  model, no SHAP dependency). The command refuses to predict when `predicted_at` precedes the
-  feature row's `knowledge_date`, and refuses mismatched/ swapped model heads.
+## ETF Data Model
 
-### 6. Orchestration
-- macOS `launchd` plist (or a single local Prefect agent if you want retries/UI) running one bash
-  script: `ingest -> quality gate -> build_features -> (monthly) retrain -> predict_daily`.
-  Logs to file. **Explicitly not Airflow / Dagster.**
+The ETF registry in `etfs.py` describes fund role, commodity, issuer, strategy, leverage, and
+whether a product should appear in dashboard or ingest defaults.
 
-### 7. Dashboard + alerts
-- **Streamlit** (`dashboard` extra), reading the repository directly. Implemented sections: Today's
-  Call (per-head probability vs naive + driver tables), Price & Curve, Positioning (COT), Inventory,
-  and **Model Health** (model-vs-naive accuracy/Brier, overall, rolling, and per regime). Data
-  shaping is a pure, unit-tested layer (`dashboard/data.py`); `app.py` is thin glue. The Latest
-  Market-Moving News lane (Phase 7) is not built yet.
-- The Phase 7 news-impact lane shows latest energy-futures-moving headlines with affected
-  commodity, catalyst type, importance, impact direction, confidence, short rationale, and source
-  link. Article-level labels are display/alerting data first; only aggregated point-in-time news
-  features graduate into models after walk-forward validation.
-- Alerts via free Slack webhook or `ntfy.sh`: pipeline failure, the `USO`-2020 crowding alert
-  (AUM/OI above threshold), and the T-10 roll-window-approach notice — all rule-based, independent
-  of model output.
+Current default official-holdings coverage:
 
-## Recommended stack (summary)
+- WTI: `USO`, `USL`, `DBO`, `UCO`, `SCO`
+- Natural gas: `UNG`, `UNL`, `BOIL`, `KOLD`
+- RBOB gasoline: `UGA`
+
+Current fallback metric context:
+
+- No default dashboard ETF currently depends on Yahoo fallback metrics.
+- `ingest-etf-metrics --fund ...` remains available for explicit Yahoo cross-checks or future
+  products without issuer coverage.
+
+Dashboard flow views prefer official issuer metrics over Yahoo estimates when both sources exist
+for the same fund/date. USCF `cr` is converted to flow as `cr * NAV`; if an issuer source does not
+provide creation/redemption shares, the repository can still derive a net flow proxy from changes
+in shares outstanding.
+
+## Factor Rows
+
+Feature/factor rows remain useful even without model training. They are a compact, point-in-time
+state snapshot for dashboards and backfills:
+
+- futures curve spreads, carry, curvature, and front-month returns;
+- COT net positioning, z-scores, and open interest;
+- EIA inventory levels and seasonal surprise;
+- macro levels such as USD and real yields;
+- ETF crowding and roll-window interaction;
+- aggregated point-in-time news features.
+
+The CLI names still include some historical "feature" terminology. In the current product framing,
+these rows are monitoring factors, not model inputs.
+
+## Orchestration
+
+GitHub Actions is the default scheduler:
+
+- `ci.yml`: lint + tests.
+- `nightly.yml`: scheduled monitoring run, SQLite state restore/push, email on failure.
+- `backfill.yml`: manual source/factor backfill, no model training.
+- `pages.yml`: static report build and deployment.
+
+The previous monthly retrain workflow has been removed from the documented path.
+
+## Dashboard And Alerts
+
+Implemented dashboard sections:
+
+- Latest Market-Moving News
+- ETF Flow & Roll Pressure
+- Price & Curve
+- Positioning (COT)
+- Inventory
+
+The static report mirrors the same data-first view for GitHub Pages. Alerts are rule-based and
+independent of model output: workflow failure, high-impact news, roll-window notices, and crowded
+ETF/contract exposure.
+
+## Recommended Stack
 
 | Concern | Choice |
 |---|---|
-| Ingestion | Python 3.12 + httpx, per-source connectors, swappable `CurveProvider` |
-| Storage | SQLite default (`state` branch in Actions) or PostgreSQL, dual timestamps, pydantic quality gate |
+| Ingestion | Python 3.12 + httpx, per-source connectors |
+| Storage | SQLite default or PostgreSQL, dual timestamps, pydantic quality gate |
 | Analytical cache | Parquet + DuckDB |
-| Orchestration | launchd plist (or local Prefect agent) |
-| Modeling | LightGBM (2 heads) + scikit-learn baseline; MLflow file-store later |
-| Dashboard | Streamlit + Plotly (Streamlit Community Cloud optional) |
-| Alerting | Slack webhook / ntfy.sh |
+| Orchestration | GitHub Actions cron + manual workflows |
+| Dashboard | Streamlit app + self-contained static HTML report |
+| Alerting | Email failure alerts, Slack/ntfy optional |
 
-## Explicitly out of scope (rejected as over-engineering for one user)
+## Explicitly Out Of Scope
 
-Dagster, dbt, Great Expectations, TimescaleDB hypertables, Grafana, FastAPI serving layer, and a
-European UCITS ETC ingestion layer. Data volume is thousands of rows/day — none of that
-infrastructure is justified, and the predictive edge lives in the data/signals, not the
-orchestrator. Chemicals (PP/PVC/methanol/ethylene/PTA) are out of scope permanently — no Western
-ETF wrapper exists.
+Prediction-model training is not part of the current product path. The old modeling modules and
+CLI commands are retained for reference/backward compatibility, but scheduled jobs and docs should
+not depend on them.
+
+Still out of scope as over-engineering for this project: Dagster, dbt, Great Expectations,
+TimescaleDB hypertables, Grafana, and a FastAPI serving layer. European UCITS ETCs remain
+secondary because most are swap-based and do not disclose transparent futures holdings.

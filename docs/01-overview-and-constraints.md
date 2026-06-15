@@ -1,90 +1,87 @@
-# 01 — Overview, constraints, and honest expectations
+# 01 - Overview, Constraints, And Expectations
 
 ## Mission
 
-Monitor the footprint of futures-based energy commodity ETFs (the "smart money" vehicles) — their
-fund flows, holdings, and roll behavior — to anticipate, over a short horizon:
+Monitor the footprint of futures-based energy commodity ETFs: fund flows, issuer holdings, roll
+behavior, contract-month exposure, and related futures-market context. The current system is a
+data and dashboard product, not a predictive-model product.
 
-- the direction of the **underlying futures price**, and
-- the direction of the **roll / calendar spread** (M1–M2 and beyond).
+The practical questions are:
 
-Augment with physical inventory data, macro fundamentals, and news/sentiment.
+- where did ETF creation/redemption pressure appear;
+- which contract months are ETF portfolios actually holding;
+- whether front-month roll funds are concentrated in a vulnerable part of the curve;
+- how COT positioning, inventories, macro data, and news frame the current market state.
 
-## The three hard facts (these reshape the original idea)
+## The Three Hard Facts
 
-### 1. Energy is viable; "chemicals" is an empty set in Western markets
+### 1. Energy Is Viable; Chemicals Are Not
 
-PP, PVC, methanol, PTA, and ethylene futures trade liquidly **only on Chinese exchanges**
-(Zhengzhou Commodity Exchange, Dalian Commodity Exchange). CME lists thinly-traded `PCW`
-petrochemical swap-futures (PP / PGP / HDPE) and ICE lists cash-settled Asia ethylene futures, but
-these are commercial-hedger instruments with open interest often in the single/low-triple digits
-and **zero ETF wrappers**. The only "energy & chemicals futures index" fund is a China-onshore
-A-share product (CCB Principal) inaccessible to US/EU investors and not UCITS-compliant.
+PP, PVC, methanol, PTA, and ethylene futures are concentrated on Chinese exchanges or thin
+commercial-hedger venues. There is no useful US-listed or UCITS-domiciled ETF/ETC wrapper for a
+Western chemicals ETF monitor.
 
-**Conclusion:** there is **no US-listed or UCITS-domiciled ETF/ETC** providing exposure to PP /
-PVC / methanol / ethylene / PTA. Designing around a "chemical ETF" is designing around a phantom.
-Chemicals are out of scope permanently. (A genuine chemicals project would be a separate effort
-built on Chinese onshore futures + Chinese-language paid inventory data — SCI99 / Longzhong / CCF.)
+Conclusion: chemicals remain out of scope.
 
-### 2. "Fund flows" are a daily proxy, not true creation/redemption
+### 2. ETF Flow Is Still A Proxy
 
-- True intraday creation/redemption units and the identity of the Authorized Participants are
-  **never public**.
-- The usable proxy is the daily change in `shares_outstanding` x NAV (T+1), from issuer files.
-- Holdings and roll state come from each issuer's daily PCF (Portfolio Composition File).
-- In CFTC COT data, all index/ETF/swap exposure is lumped into an aggregate `Swap Dealers` bucket
-  — you **cannot isolate a single ETF's position** — and the data is published **T+3** (Tuesday
-  positions released the following Friday 15:30 ET).
+True intraday creation/redemption units and authorized-participant identities are not public.
 
-### 3. Publication lag is a hard correctness constraint
+For USCF funds, the public dailyprice endpoint exposes a daily `cr` field that can be converted to
+net flow as:
+
+```text
+cr * NAV
+```
+
+For sources without `cr`, the fallback proxy is:
+
+```text
+(shares_outstanding[t] - shares_outstanding[t-1]) * NAV[t]
+```
+
+Both are net proxies, not gross AP activity.
+
+### 3. Publication Lag Is A Hard Correctness Constraint
 
 | Data | Lag at decision time |
 |---|---|
-| CFTC COT | T+3 (Tue close, Fri 15:30 ET release) |
-| ETF holdings (PCF) | T+1 |
-| EIA inventory | same-day, but only after the 10:30 ET release |
+| CFTC COT | T+3 |
+| ETF holdings | Usually T+1 |
+| EIA inventory | Same day, only after release time |
 
-**Every table carries two timestamps:** `report_date` (when the event happened) and
-`knowledge_date` (when it could first have been known). Models may only consume rows whose
-`knowledge_date` has arrived. This is the single most important correctness rule — violating it
-produces a look-ahead-biased backtest that looks great and fails live.
+Every table carries `report_date` and `knowledge_date`. This matters for dashboards too: a
+monitoring view should not silently use data that was not public yet at the selected timestamp.
 
-## What this system is
+## What This System Is
 
-A **monitoring dashboard that emits probabilistic directional tilts**, each accompanied by a
-SHAP top-3-driver explanation and shown next to a naive-persistence baseline so the dashboard
-always reveals whether the model is adding value. **Not a price oracle.**
+A data-first monitoring pipeline and dashboard:
 
-The roll/calendar-spread model is the most defensible source of edge (theory of storage + the
-mechanical, calendar-scheduled ETF roll). The outright price model is harder and lower-confidence.
+- official ETF dailyprice/NAV/share and holdings ingestion from USCF, Invesco, and ProShares;
+- fallback Yahoo ETF metric ingestion only for explicit cross-checks or products without issuer
+  connectors;
+- futures curves, inventory, macro, COT, and news ingestion;
+- point-in-time factor rows;
+- Streamlit and static HTML dashboards;
+- optional rule-based alerts.
 
-## Honest expectations (all from the literature survey)
+Prediction-model training and inference are out of the primary product path. Legacy modeling code
+is retained as research context, but it should not drive current workflows or documentation.
 
-- **COT → price predictability is contested.** Singleton (2014) found it in 2006–2010 oil;
-  Sanders & Irwin (2014) and Hamilton & Wu (2015) could not replicate. Treat COT features as a
-  hypothesis to be falsified by the model-health page — drop them if they don't beat baseline.
-- **Front-running the roll (Mou 2010, Sharpe up to 4.39) has likely decayed/become crowded.**
-  Major indices randomized/staggered roll windows specifically to reduce exploitability. Treat
-  the roll-window feature as one input, not guaranteed alpha.
-- **Inventory surprise is intraday and short-lived.** A daily batch only captures post-
-  announcement drift (small), not the 10:30 ET jump.
-- **The USO-2020 episode is an extreme, threshold-dependent tail event** (AUM became a large
-  fraction of front-month OI). Handle it as a rule-based crowding alert (AUM/OI > threshold), not
-  a smooth daily signal.
-- **Sample is thin** (COT disaggregated since 2006, ETF flows since ~2006) — at most ~1,000 weekly
-  observations. Cross-commodity pooling + strict walk-forward validation are mandatory to avoid
-  overfitting.
-- **Any discovered edge decays** (~8% annualized per 1-SD increase in a crowding metric). The
-  model-health / decay monitor is the trigger to stop trusting the model — it is required, not
-  polish.
+## Expectations
 
-## Red lines
+- ETF-driven roll pressure can matter most when fund AUM is large relative to open interest, but it
+  is episodic rather than a smooth daily signal.
+- COT positioning is useful context, not single-ETF positioning. The `Swap Dealers` bucket is
+  aggregate.
+- Inventory surprises are timing-sensitive; a daily monitor captures state and post-release
+  context, not the initial intraday jump.
+- Historical ETF holdings are hard. Current issuer endpoints are mostly latest-snapshot oriented,
+  so raw payload capture going forward is part of the data asset.
 
-1. **No phantom chemical scope.** Do not add an `asset_class='chemical'` placeholder that implies
-   a roadmap.
-2. **Do not trust third-party aggregator AUM** (e.g. `USCI` reported as both ~$197M and ~$288M on
-   the same date). Source AUM from the issuer's own PCF/fact sheet.
-3. **The CME curve scraper is the most fragile component** — keep it behind a swappable
-   curve-provider interface so it can be replaced by CME DataMine / Barchart later.
-4. **Transaction costs are flow-conditional** — costs/bid-ask widen exactly when ETF flows are
-   large and the roll signal is strongest. Never use static cost assumptions in a backtest P&L.
+## Red Lines
+
+1. Do not add phantom chemicals scope.
+2. Prefer issuer primary data over third-party ETF aggregators.
+3. Keep fragile futures-curve scraping behind a swappable provider interface.
+4. Never let Yahoo fallback ETF metrics override official issuer data for the same fund/date.

@@ -11,35 +11,27 @@ from datetime import date, datetime, timedelta
 
 from energy_etf_monitor.commodities import COMMODITIES
 from energy_etf_monitor.config import Settings
-from energy_etf_monitor.dashboard.data import feature_time_series, news_panel_rows
-from energy_etf_monitor.records import CotPosition, DailyFeatureRow, FundDailyMetric, NewsArticle
+from energy_etf_monitor.dashboard.data import (
+    etf_exposure_rows,
+    etf_flow_chart,
+    etf_flow_rows,
+    etf_strategy_summary_rows,
+    feature_time_series,
+    news_panel_rows,
+)
+from energy_etf_monitor.etfs import etf_funds_for_commodity
+from energy_etf_monitor.records import (
+    CotPosition,
+    DailyFeatureRow,
+    FundDailyMetric,
+    FundHolding,
+    NewsArticle,
+)
 from energy_etf_monitor.storage.repository import IngestionRepository
 
 # USCF single-commodity roll window: front-month funds roll early each month (business days ~5–9).
 ROLL_WINDOW_START_BD = 5
 ROLL_WINDOW_END_BD = 9
-
-# Documented per-fund roll methodology (docs/02-etf-universe.md). `front` funds drive the roll alert.
-FUNDS_BY_COMMODITY: dict[str, list[dict]] = {
-    "WTI": [
-        {"ticker": "USO", "front": True,
-         "strategy": "Front-month CL, rolled over a multi-day window early each month "
-                     "(≈ business days 5–9)."},
-        {"ticker": "USL", "front": False,
-         "strategy": "Laddered equally across 12 consecutive monthly CL contracts — far lower "
-                     "roll concentration than USO."},
-    ],
-    "NATGAS": [
-        {"ticker": "UNG", "front": True,
-         "strategy": "Front-month NG, rolled ≈ 2 weeks before contract expiry."},
-        {"ticker": "UNL", "front": False,
-         "strategy": "Laddered across 12 consecutive monthly NG contracts."},
-    ],
-    "RBOB": [
-        {"ticker": "UGA", "front": True,
-         "strategy": "Front-month RB, simple monthly roll."},
-    ],
-}
 
 # (chart key, feature column(s), human label, y-axis label, explanation shown under the chart)
 PRICE_CHART = {
@@ -128,7 +120,7 @@ def _roll_status(as_of: date) -> dict:
             "days_until": days_until, "in_window": in_window, "level": level, "message": message}
 
 
-def _flow_section(commodity: str, fund_metrics: Sequence[FundDailyMetric]) -> dict:
+def _legacy_flow_section(commodity: str, fund_metrics: Sequence[FundDailyMetric]) -> dict:
     config = COMMODITIES.get(commodity)
     fund = config.crowding_fund_ticker if config else None
     ordered = sorted(fund_metrics, key=lambda m: m.report_date)
@@ -149,6 +141,32 @@ def _flow_section(commodity: str, fund_metrics: Sequence[FundDailyMetric]) -> di
     }
 
 
+def _flow_section(commodity: str, fund_metrics: Sequence[FundDailyMetric]) -> dict:
+    config = COMMODITIES.get(commodity)
+    fund = config.crowding_fund_ticker if config else None
+    ordered = sorted(fund_metrics, key=lambda metric: metric.report_date)
+    return {
+        "fund": fund,
+        "dates": [metric.report_date.isoformat() for metric in ordered],
+        "values": [
+            None
+            if metric.implied_flow_usd is None
+            else round(metric.implied_flow_usd / 1e6, 3)
+            for metric in ordered
+        ],
+        "title": (
+            f"ETF creation / redemption - {fund}" if fund else "ETF creation / redemption"
+        ),
+        "yLabel": "Daily flow ($M)",
+        "explain": (
+            "Official issuer creation/redemption flow is used when available; otherwise the "
+            "fallback is day-over-day shares outstanding times NAV. Sustained creation means new "
+            "money flowing in, and around monthly roll windows that pressure can matter for "
+            "front-of-curve spreads."
+        ),
+    }
+
+
 def render_dashboard_html(
     *,
     commodity: str,
@@ -156,11 +174,13 @@ def render_dashboard_html(
     news: Sequence[NewsArticle],
     as_of: datetime,
     fund_metrics: Sequence[FundDailyMetric] = (),
+    fund_holdings: Sequence[FundHolding] = (),
     cot_positions: Sequence[CotPosition] = (),
     commodities: Sequence[str] = tuple(COMMODITIES),
 ) -> str:
     """Render one commodity's factor dashboard into a self-contained interactive HTML document."""
 
+    etf_funds = etf_funds_for_commodity(commodity)
     news_rows = [
         {
             "published": r["published"], "title": str(r["headline"]), "url": str(r["url"]),
@@ -174,29 +194,59 @@ def render_dashboard_html(
         "commodity": commodity,
         "commodities": list(commodities),
         "as_of": as_of.strftime("%Y-%m-%d %H:%M"),
-        "funds": FUNDS_BY_COMMODITY.get(commodity, []),
+        "funds": [
+            {
+                "ticker": fund.ticker,
+                "issuer": fund.issuer,
+                "front": fund.front_month_roll,
+                "strategy": fund.strategy_description,
+                "badge": fund.strategy_badge,
+                "leverage": fund.leverage,
+            }
+            for fund in etf_funds
+        ],
         "roll": _roll_status(as_of.date()),
         "price": {**PRICE_CHART, **_series(feature_rows, PRICE_CHART["column"])},
         "cot": _cot_series(cot_positions),
         "inventory": _series(feature_rows, INVENTORY_VALUE["column"]),
         "surprise": _series(feature_rows, INVENTORY_SURPRISE["column"]),
         "flow": _flow_section(commodity, fund_metrics),
+        "etf": {
+            "flow": etf_flow_chart(fund_metrics, funds=etf_funds),
+            "rows": etf_flow_rows(fund_metrics, funds=etf_funds),
+            "summary": etf_strategy_summary_rows(fund_metrics, funds=etf_funds),
+            "exposure": etf_exposure_rows(
+                fund_holdings,
+                metrics=fund_metrics,
+                funds=etf_funds,
+            ),
+        },
         "news": news_rows,
     }
-    return _PAGE.replace("/*__DASH__*/", json.dumps(data))
+    return _PAGE.replace("/*__DASH__*/", _script_safe_json(data))
 
 
 def build_commodity_html(commodity: str, settings: Settings, as_of: datetime) -> str:
-    config = COMMODITIES.get(commodity)
-    fund = config.crowding_fund_ticker if config else None
+    etf_funds = etf_funds_for_commodity(commodity)
+    tickers = [fund.ticker for fund in etf_funds]
     with IngestionRepository.from_settings(settings) as repository:
         feature_rows = repository.list_daily_feature_rows(commodity=commodity)
         news = repository.list_news_articles(as_of=as_of, limit=25)
-        fund_metrics = repository.list_fund_daily_metrics(fund_ticker=fund) if fund else []
+        fund_metrics = [
+            metric
+            for ticker in tickers
+            for metric in repository.list_fund_daily_metrics(fund_ticker=ticker)
+        ]
+        fund_holdings = [
+            holding
+            for ticker in tickers
+            for holding in repository.list_fund_holdings(fund_ticker=ticker)
+        ]
         cot_positions = repository.list_cot_positions(commodity=commodity)
     return render_dashboard_html(
         commodity=commodity, feature_rows=feature_rows, news=news,
-        as_of=as_of, fund_metrics=fund_metrics, cot_positions=cot_positions,
+        as_of=as_of, fund_metrics=fund_metrics, fund_holdings=fund_holdings,
+        cot_positions=cot_positions,
     )
 
 
@@ -217,6 +267,17 @@ def write_static_site(output_dir, *, settings: Settings, as_of: datetime) -> lis
             index.write_text(page, encoding="utf-8")
             written.append(index)
     return written
+
+
+def _script_safe_json(data: dict) -> str:
+    return (
+        json.dumps(data)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 _PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -242,6 +303,10 @@ a{color:#6cb6ff}
 .fund{flex:1;min-width:280px;background:#161b22;border:1px solid #222a35;border-radius:10px;padding:12px 14px}
 .fund .tk{font-weight:700;font-size:15px}
 .fund .tag{font-size:11px;color:#9aa7b4;border:1px solid #2b3340;border-radius:999px;padding:1px 8px;margin-left:6px}
+.metricgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:10px}
+.metric{background:#10151c;border:1px solid #1c232d;border-radius:10px;padding:10px 12px}
+.metric .k{color:#9aa7b4;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.metric .v{font-size:18px;font-weight:700;margin-top:2px}
 .alert{border-radius:10px;padding:10px 14px;margin-top:8px;font-size:13px;border:1px solid}
 .alert.now{background:#3a1d20;border-color:#7d2b32;color:#ffb4b4}
 .alert.soon{background:#3a311a;border-color:#7d6a2b;color:#ffe08a}
@@ -330,10 +395,11 @@ function chartCard(title, explain){
 const VBW=980, PADL=58, PLOTW=864, XH_Y1=14, XH_Y2=230;
 
 function renderCharts(){
-  // ETF creation / redemption (going-forward; may be empty early on)
-  if(DASH.flow && DASH.flow.dates && DASH.flow.dates.length){
-    const fl=clip(DASH.flow,RANGE);
-    setChart(DASH.flow.title, fl.dates, [{name:DASH.flow.yLabel,color:PALETTE[4],values:fl.values,axis:0}]);
+  // ETF creation / redemption by fund (going-forward; sparse early on)
+  if(DASH.etf && DASH.etf.flow && DASH.etf.flow.dates && DASH.etf.flow.dates.length){
+    const fl=clipMulti(DASH.etf.flow.dates,DASH.etf.flow.series,RANGE);
+    setChart(DASH.etf.flow.title, fl.dates,
+      fl.series.map((s,i)=>({name:s.name,color:PALETTE[i%PALETTE.length],values:s.values,axis:0})));
   }
   // Front-month price
   const price=clip(DASH.price,RANGE);
@@ -395,10 +461,38 @@ function render(){
   const d=DASH;
   const nav = d.commodities.map(c=>`<a href="${c.toLowerCase()}.html" class="${c===d.commodity?'on':''}">${esc(c)}</a>`).join(" ");
   const funds = d.funds.map(f=>`<div class="fund"><span class="tk">${esc(f.ticker)}</span>`
-      +`<span class="tag">${f.front?"front-month roll":"laddered"}</span><div class="explain" style="margin-top:6px">${esc(f.strategy)}</div></div>`).join("");
+      +`<span class="tag">${esc(f.badge)}</span><div class="explain" style="margin-top:6px">${esc(f.strategy)}</div></div>`).join("");
   const roll = d.roll;
   const alert = `<div class="alert ${roll.level}">⏱ <b>Roll watch:</b> ${esc(roll.message)} `
       + `<span style="opacity:.8">Front-month funds (e.g. ${esc((d.funds.find(f=>f.front)||{}).ticker||'')}) sell the expiring contract and buy the next during this window; large fund AUM vs. open interest can move the front-of-curve spread.</span></div>`;
+  const etf = d.etf || {rows:[],summary:[],exposure:[],flow:{series:[]}};
+  const totalAum = (etf.rows||[]).reduce((s,r)=>s+(r.latest_aum_usd||0),0);
+  const totalFlow = (etf.rows||[]).reduce((s,r)=>s+(r.daily_flow_usd||0),0);
+  const frontFlow = (etf.rows||[]).filter(r=>r.front_month_roll).reduce((s,r)=>s+(r.daily_flow_usd||0),0);
+  const leveragedFlow = (etf.rows||[]).filter(r=>Math.abs(r.leverage||1)>1).reduce((s,r)=>s+(r.daily_flow_usd||0),0);
+  const metricCards = `<div class="metricgrid">
+    <div class="metric"><div class="k">covered AUM</div><div class="v">${fmt(totalAum)}</div></div>
+    <div class="metric"><div class="k">daily flow</div><div class="v">${fmt(totalFlow)}</div></div>
+    <div class="metric"><div class="k">front-month flow</div><div class="v">${fmt(frontFlow)}</div></div>
+    <div class="metric"><div class="k">leveraged flow</div><div class="v">${fmt(leveragedFlow)}</div></div>
+  </div>`;
+  const etfRows = (etf.rows||[]).length ? etf.rows.map(r=>`<tr>`
+      +`<td>${esc(r.ticker)}</td><td>${esc(r.issuer)}</td><td>${esc(r.strategy)}</td>`
+      +`<td class="num">${esc(r.leverage)}</td><td>${esc(r.latest_date||"")}</td>`
+      +`<td class="num">${fmtMaybe(r.latest_aum_usd)}</td><td class="num">${fmtMaybe(r.daily_flow_usd)}</td>`
+      +`<td class="num">${pctMaybe(r.flow_pct_aum)}</td><td class="num">${fmtMaybe(r.flow_5d_usd)}</td>`
+      +`<td>${r.model_input?"yes":"no"}</td></tr>`).join("")
+      : `<tr><td colspan="10" class="empty">No ETF metric snapshots yet.</td></tr>`;
+  const summaryRows = (etf.summary||[]).length ? etf.summary.map(r=>`<tr>`
+      +`<td>${esc(r.strategy)}</td><td>${esc(r.funds)}</td><td class="num">${esc(r.fund_count)}</td>`
+      +`<td class="num">${fmtMaybe(r.aum_usd)}</td><td class="num">${fmtMaybe(r.daily_flow_usd)}</td>`
+      +`<td class="num">${fmtMaybe(r.flow_5d_usd)}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">No strategy summary yet.</td></tr>`;
+  const exposureRows = (etf.exposure||[]).length ? etf.exposure.map(r=>`<tr>`
+      +`<td>${esc(r.ticker)}</td><td>${esc(r.contract_month)}</td><td>${esc(r.holding_name)}</td>`
+      +`<td class="num">${fmtMaybe(r.quantity)}</td><td class="num">${fmtMaybe(r.market_value_usd)}</td>`
+      +`<td class="num">${pctMaybe((r.percent_nav||0)/100)}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">No issuer holdings/PCF rows loaded yet.</td></tr>`;
   const newsRows = d.news.length ? d.news.map(a=>`<tr>`
       +`<td>${esc(a.published)}</td>`
       +`<td><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a></td>`
@@ -418,9 +512,15 @@ function render(){
     ${alert}
     <div class="rollgrid">${funds}</div>
     <p class="explain">USCF single-commodity funds publish their roll methodology; this is the standard early-month window. The alert is a heads-up that fund roll flows are imminent — it is informational, not a trade signal.</p>
+    <h2>ETF flow & roll pressure</h2>
+    ${metricCards}
+    <table><thead><tr><th>fund</th><th>issuer</th><th>strategy</th><th>lev</th><th>date</th><th>AUM</th><th>daily flow</th><th>flow/AUM</th><th>5d flow</th><th>model</th></tr></thead><tbody>${etfRows}</tbody></table>
+    <table><thead><tr><th>strategy</th><th>funds</th><th>count</th><th>AUM</th><th>daily flow</th><th>5d flow</th></tr></thead><tbody>${summaryRows}</tbody></table>
+    <h2>ETF exposure by contract month</h2>
+    <table><thead><tr><th>fund</th><th>contract month</th><th>holding</th><th>quantity</th><th>market value</th><th>% NAV</th></tr></thead><tbody>${exposureRows}</tbody></table>
     <div class="ranges"><b>Time range (applies to all charts):</b> ${rangeBtns}</div>
     <div id="charts">
-      ${d.flow && d.flow.fund ? chartCard(d.flow.title, d.flow.explain) : ""}
+      ${etf.flow && etf.flow.series && etf.flow.series.length ? chartCard(etf.flow.title, etf.flow.explain) : ""}
       ${chartCard(d.price.title, d.price.explain)}
       ${chartCard(d.cot.title, d.cot.explain)}
       ${chartCard("Inventory & seasonal surprise", "EIA inventory level (left axis) vs. its seasonal surprise — how far the latest level sits from the typical level for this time of year, in standard deviations (right axis). The two are on separate axes because their scales differ by orders of magnitude. A large positive surprise (more inventory than seasonal norm) is generally bearish for price; a negative surprise is bullish.")}
@@ -428,7 +528,7 @@ function render(){
     <h2>Latest market-moving news</h2>
     <table><thead><tr><th>published</th><th>headline (click to open)</th><th>commodity</th><th>catalyst</th><th>importance</th><th>direction</th><th>confidence</th></tr></thead><tbody>${newsRows}</tbody></table>
     <p class="explain">Headlines are pulled from free news feeds (GDELT / RSS) and classified by catalyst, directional lean and confidence. Click a headline to open the source article.</p>
-    <footer>Energy ETF monitor · self-contained factor dashboard · data: Yahoo Finance (futures), EIA (inventory), FRED (macro), CFTC (positioning), GDELT/RSS (news). No price forecast, no JavaScript trackers, no external assets.</footer>`;
+    <footer>Energy ETF monitor · self-contained factor dashboard · data: issuer ETF holdings (USCF/Invesco/ProShares), Yahoo Finance (futures/fallback), EIA (inventory), FRED (macro), CFTC (positioning), GDELT/RSS (news). No price forecast, no JavaScript trackers, no external assets.</footer>`;
 
   document.querySelectorAll(".ranges button").forEach(b=>b.addEventListener("click",()=>{
     const m=b.getAttribute("data-m"); RANGE = (m==="null"||m===null)?null:parseInt(m,10);
@@ -438,4 +538,6 @@ function render(){
   renderCharts();
 }
 render();
+function fmtMaybe(v){return v==null?"":fmt(Number(v));}
+function pctMaybe(v){return v==null?"":(Number(v)*100).toFixed(2)+"%";}
 </script></body></html>"""

@@ -1,7 +1,13 @@
 from datetime import UTC, date, datetime
 
 from energy_etf_monitor.dashboard.static_report import render_dashboard_html
-from energy_etf_monitor.records import CotPosition, DailyFeatureRow, NewsArticle
+from energy_etf_monitor.records import (
+    CotPosition,
+    DailyFeatureRow,
+    FundDailyMetric,
+    FundHolding,
+    NewsArticle,
+)
 
 
 def _feature_row(report_date: date, price: float, cot: float, inventory: float) -> DailyFeatureRow:
@@ -54,6 +60,35 @@ def _news(moment: datetime) -> NewsArticle:
     )
 
 
+def _metric(ticker: str, report_date: date, flow: float | None) -> FundDailyMetric:
+    return FundDailyMetric(
+        source="yahoo_etf",
+        fund_ticker=ticker,
+        report_date=report_date,
+        knowledge_date=datetime.combine(report_date, datetime.min.time(), tzinfo=UTC),
+        nav_per_share=50.0,
+        shares_outstanding=20_000_000,
+        total_net_assets=1_000_000_000,
+        implied_flow_usd=flow,
+    )
+
+
+def _holding(ticker: str, contract_month: date) -> FundHolding:
+    return FundHolding(
+        source="uscf",
+        fund_ticker=ticker,
+        holding_key=f"{ticker}-{contract_month.isoformat()}",
+        holding_name=f"{ticker} CL",
+        instrument_type="Future",
+        ticker="CL",
+        report_date=date(2026, 6, 12),
+        knowledge_date=datetime(2026, 6, 12, 18, tzinfo=UTC),
+        contract_month=contract_month,
+        quantity=10_000,
+        market_value=700_000_000,
+    )
+
+
 def test_render_dashboard_is_interactive_factor_view() -> None:
     as_of = datetime(2026, 6, 15, 12, tzinfo=UTC)
     days = [date(2026, 6, 10), date(2026, 6, 11), date(2026, 6, 12)]
@@ -64,6 +99,12 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
         feature_rows=rows,
         news=[_news(as_of)],
         as_of=as_of,
+        fund_metrics=[
+            _metric("USO", date(2026, 6, 11), 3_000_000),
+            _metric("USO", date(2026, 6, 12), 4_000_000),
+            _metric("USL", date(2026, 6, 12), -1_000_000),
+        ],
+        fund_holdings=[_holding("USO", date(2026, 7, 1))],
         cot_positions=[_cot(day) for day in days],
         commodities=("WTI", "NATGAS"),
     )
@@ -71,14 +112,19 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
     assert page.startswith("<!doctype html>")
     assert "Energy price factors" in page
     assert "Not a price forecast" in page
+    assert "ETF flow & roll pressure" in page
     assert "ETF roll watch" in page and "USO" in page  # roll strategy + alert
+    assert "USL" in page and "DBO" in page and "UCO" in page  # richer WTI universe
+    assert "ETF exposure by contract month" in page
+    assert "2026-07" in page and "700000000" in page
     assert "Time range" in page  # global range selector
     assert '"price"' in page and "78.0" in page  # embedded price series for the JS charts
     assert "https://example.com/article-1" in page  # news url embedded for the JS to link
     assert 'target="_blank"' in page  # JS renders news titles as links opening in a new tab
     assert "OPEC cuts output" in page
     assert "<script>" in page  # interactive (vanilla JS, self-contained)
-    assert "creation / redemption" in page.lower()  # ETF flow section present (even if empty early)
+    assert "creation / redemption" in page.lower()  # ETF flow section present
+    assert '"series": [{"name": "USO", "values": [3.0, 4.0]}' in page
     # COT is now broken out by disaggregated trader type, not a single swap-dealer net.
     assert "Positioning by trader type" in page
     assert "Producer / merchant" in page and "Managed money" in page
@@ -96,3 +142,13 @@ def test_render_dashboard_handles_empty_state() -> None:
     assert "Energy price factors" in page
     assert '"news": []' in page  # empty series embed without crashing
     assert "ETF roll watch" in page
+
+
+def test_render_dashboard_escapes_news_for_inline_script_safety() -> None:
+    as_of = datetime(2026, 6, 15, 12, tzinfo=UTC)
+    article = _news(as_of).model_copy(update={"title": "</script><script>alert(1)</script>"})
+
+    page = render_dashboard_html(commodity="WTI", feature_rows=[], news=[article], as_of=as_of)
+
+    assert "</script><script>alert(1)</script>" not in page
+    assert "\\u003c/script\\u003e" in page
