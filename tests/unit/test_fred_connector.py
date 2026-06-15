@@ -22,6 +22,7 @@ def test_fred_connector_skips_missing_values_and_normalizes_observations() -> No
     assert rows[0].source == "fred"
     assert rows[0].series_id == "DTWEXBGS"
     assert rows[0].report_date.isoformat() == "2026-06-12"
-    assert rows[0].knowledge_date == fetched_at
+    # Stamped at the publication lag (report date + ~1 day), not the fetch time.
+    assert rows[0].knowledge_date == datetime(2026, 6, 13, 13, 0, tzinfo=UTC)
     assert rows[0].value == 98.75
 

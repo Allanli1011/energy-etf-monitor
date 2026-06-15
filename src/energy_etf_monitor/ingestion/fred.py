@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import httpx
@@ -81,9 +81,22 @@ class FredSeriesConnector:
                     source=FredSeriesConnector.source,
                     series_id=series_id,
                     report_date=datetime.fromisoformat(str(row["date"])).date(),
-                    knowledge_date=fetched_at,
+                    knowledge_date=_publication_datetime(
+                        datetime.fromisoformat(str(row["date"])).date()
+                    ),
                     value=float(value),
                 )
             )
         return normalized
+
+
+# Daily macro series post the next business day; a +1-day publication lag keeps the point-in-time
+# gate honest without overstating availability.
+FRED_PUBLICATION_LAG_DAYS = 1
+
+
+def _publication_datetime(report_date: date) -> datetime:
+    return datetime.combine(
+        report_date + timedelta(days=FRED_PUBLICATION_LAG_DAYS), time(13, 0), tzinfo=UTC
+    )
 

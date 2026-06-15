@@ -31,7 +31,8 @@ def test_eia_connector_normalizes_series_rows_with_dual_timestamps() -> None:
     assert row.source == "eia"
     assert row.series_id == "WCESTUS1"
     assert row.report_date.isoformat() == "2026-06-05"
-    assert row.knowledge_date == fetched_at
+    # Stamped at the publication lag (report Friday + ~5 days), not the fetch time.
+    assert row.knowledge_date == datetime(2026, 6, 10, 15, 0, tzinfo=UTC)
     assert row.value == 412345.0
     assert row.unit == "Thousand Barrels"
 

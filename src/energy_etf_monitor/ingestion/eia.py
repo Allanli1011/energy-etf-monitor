@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import httpx
@@ -83,13 +83,25 @@ class EiaSeriesConnector:
                     source=EiaSeriesConnector.source,
                     series_id=series_id,
                     report_date=report_date,
-                    knowledge_date=fetched_at,
+                    knowledge_date=_publication_datetime(report_date),
                     value=numeric_value,
                     unit=row.get("units"),
                     metadata={"raw_period": row.get("period"), "eia_series": row.get("series")},
                 )
             )
         return normalized
+
+
+# Weekly petroleum stocks publish ~Wednesday 10:30 ET for the prior Friday (~5 days). Stamping a
+# realistic publication lag — rather than the fetch time — keeps the point-in-time gate honest and
+# lets historical backfill rebuild feature rows that only see data public on each as-of date.
+EIA_PUBLICATION_LAG_DAYS = 5
+
+
+def _publication_datetime(report_date: date) -> datetime:
+    return datetime.combine(
+        report_date + timedelta(days=EIA_PUBLICATION_LAG_DAYS), time(15, 0), tzinfo=UTC
+    )
 
 
 def _parse_period(period: str) -> date:
