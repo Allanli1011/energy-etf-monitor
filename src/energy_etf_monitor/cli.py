@@ -21,6 +21,7 @@ from energy_etf_monitor.ingestion.runner import (
     PhaseZeroIngestionRunner,
 )
 from energy_etf_monitor.ingestion.uscf import UscfPcfConnector
+from energy_etf_monitor.ingestion.yahoo import YahooFuturesConnector
 from energy_etf_monitor.modeling.artifacts import save_model_artifact, train_logistic_artifact
 from energy_etf_monitor.modeling.baselines import evaluate_walk_forward_baselines
 from energy_etf_monitor.modeling.dataset import (
@@ -774,6 +775,54 @@ def fetch_cme_curve(
         raw_store=RawPayloadStore(settings.raw_data_dir),
     ).fetch_curve(product_code=product_code, trade_date=curve_date)
     typer.echo(f"Fetched {len(rows)} CME {product_code.upper()} settlements for {curve_date}.")
+    if load:
+        with IngestionRepository.from_settings(settings) as repository:
+            _echo_load_result(repository.upsert_futures_settlements(rows))
+
+
+@app.command()
+def ingest_yahoo_history(
+    commodity: str = typer.Option("WTI", "--commodity"),
+    range_: str = typer.Option("10y", "--range"),
+    load: bool = typer.Option(False, "--load"),
+) -> None:
+    """Fetch the continuous front-month futures price history from Yahoo (backfill price line)."""
+
+    settings = Settings()
+    config = commodity_config(commodity)
+    rows = YahooFuturesConnector(
+        raw_store=RawPayloadStore(settings.raw_data_dir),
+    ).fetch_front_history(product_code=config.product_code, range_=range_)
+    typer.echo(
+        f"Fetched {len(rows)} {config.name} front-month settlements from Yahoo "
+        f"({range_} of {config.product_code})."
+    )
+    if load:
+        with IngestionRepository.from_settings(settings) as repository:
+            _echo_load_result(repository.upsert_futures_settlements(rows))
+
+
+@app.command()
+def ingest_yahoo_curve_history(
+    commodity: str = typer.Option("WTI", "--commodity"),
+    start_date: str = typer.Option(..., "--start-date"),
+    end_date: str = typer.Option(..., "--end-date"),
+    load: bool = typer.Option(False, "--load"),
+) -> None:
+    """Fetch historical monthly futures contracts from Yahoo for a real backfill term structure."""
+
+    settings = Settings()
+    config = commodity_config(commodity)
+    rows = YahooFuturesConnector(
+        raw_store=RawPayloadStore(settings.raw_data_dir),
+    ).fetch_curve_history(
+        product_code=config.product_code,
+        start_date=date.fromisoformat(start_date),
+        end_date=date.fromisoformat(end_date),
+    )
+    typer.echo(
+        f"Fetched {len(rows)} {config.name} historical contract settlements from Yahoo."
+    )
     if load:
         with IngestionRepository.from_settings(settings) as repository:
             _echo_load_result(repository.upsert_futures_settlements(rows))

@@ -73,7 +73,7 @@ def test_phase_zero_runner_fetches_configured_sources_without_loading(tmp_path) 
         eia_connector=FakeEia(),
         fred_connector=FakeFred(),
         cftc_connector=FakeCftc(),
-        cme_provider=FakeCme(),
+        curve_provider=FakeCme(),
     )
 
     result = runner.run(load=False, trade_date=date(2026, 6, 12), cot_limit=25)
@@ -129,7 +129,7 @@ def test_phase_zero_runner_loads_records_with_matching_repository_methods(tmp_pa
         eia_connector=FakeEia(),
         fred_connector=FakeFred(),
         cftc_connector=FakeCftc(),
-        cme_provider=FakeCme(),
+        curve_provider=FakeCme(),
         repository_factory=lambda settings: FakeRepository(),
     )
 
@@ -172,7 +172,7 @@ def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
         eia_connector=FakeEia(),
         fred_connector=FakeFred(),
         cftc_connector=FakeCftc(),
-        cme_provider=FakeCme(),
+        curve_provider=FakeCme(),
         commodities=(WTI, NATGAS),
     )
 
@@ -228,7 +228,7 @@ def test_phase_zero_runner_isolates_a_failing_source(tmp_path) -> None:
         eia_connector=FakeEia(),
         fred_connector=FakeFred(),
         cftc_connector=FakeCftc(),
-        cme_provider=FailingCme(),
+        curve_provider=FailingCme(),
         repository_factory=lambda settings: FakeRepository(),
     )
 

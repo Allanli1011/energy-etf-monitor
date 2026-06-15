@@ -146,6 +146,63 @@ class YahooFuturesConnector:
         return settlements
 
 
+    def fetch_curve_history(
+        self,
+        *,
+        product_code: str,
+        start_date: date,
+        end_date: date,
+        months_ahead: int = 7,
+    ) -> list[FuturesSettlement]:
+        """Per-(date, contract) settlements for every monthly contract spanning the range.
+
+        Each monthly contract carries years of its own daily history, so assembling them gives a
+        real M1..M6 term structure on each historical date — feature derivation picks the nearest
+        contracts by delivery month, so far-dated contracts are simply ignored per date.
+        """
+
+        _, root = _resolve_symbols(product_code)
+        fetched_at = datetime.now(UTC)
+        first = date(start_date.year, start_date.month, 1)
+        last = _add_months(date(end_date.year, end_date.month, 1), months_ahead)
+        settlements: list[FuturesSettlement] = []
+        manifest: list[dict] = []
+        contract = first
+        while contract <= last:
+            symbol = _contract_symbol(root, contract)
+            try:
+                payload = self._get_chart(symbol, range_="10y")
+            except httpx.HTTPError:
+                contract = _add_months(contract, 1)
+                continue
+            in_range = 0
+            for observation_date, price in _iter_closes(payload):
+                if start_date <= observation_date <= end_date:
+                    settlements.append(
+                        FuturesSettlement(
+                            source=self.source,
+                            product_code=product_code.upper(),
+                            report_date=observation_date,
+                            knowledge_date=datetime.combine(
+                                observation_date, SETTLEMENT_PUBLISH_TIME, tzinfo=SETTLEMENT_TZ
+                            ),
+                            contract_month=contract,
+                            settlement_price=price,
+                        )
+                    )
+                    in_range += 1
+            manifest.append({"symbol": symbol, "in_range": in_range})
+            contract = _add_months(contract, 1)
+        if self.raw_store and manifest:
+            self.raw_store.save_json(
+                source=self.source,
+                payload={"contracts": manifest},
+                fetched_at=fetched_at,
+                label=f"{root}_curve_history",
+            )
+        return settlements
+
+
 def _resolve_symbols(product_code: str) -> tuple[str, str]:
     try:
         return PRODUCT_SYMBOLS[product_code.upper()]

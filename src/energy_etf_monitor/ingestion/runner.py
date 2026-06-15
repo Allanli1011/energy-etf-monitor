@@ -7,9 +7,9 @@ from energy_etf_monitor.commodities import WTI, CommodityConfig
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.ingestion.cftc import CftcCotConnector
-from energy_etf_monitor.ingestion.cme import CmeSettlementCurveProvider
 from energy_etf_monitor.ingestion.eia import EiaSeriesConnector
 from energy_etf_monitor.ingestion.fred import FredSeriesConnector
+from energy_etf_monitor.ingestion.yahoo import YahooFuturesConnector
 from energy_etf_monitor.records import CotPosition, FuturesSettlement, TimeSeriesObservation
 from energy_etf_monitor.storage.repository import IngestionRepository, LoadResult
 
@@ -45,7 +45,7 @@ class CftcConnectorLike(Protocol):
     ) -> list[CotPosition]: ...
 
 
-class CmeProviderLike(Protocol):
+class CurveProviderLike(Protocol):
     def fetch_curve(
         self,
         *,
@@ -92,7 +92,7 @@ class PhaseZeroIngestionRunner:
         eia_connector: EiaConnectorLike | None = None,
         fred_connector: FredConnectorLike | None = None,
         cftc_connector: CftcConnectorLike | None = None,
-        cme_provider: CmeProviderLike | None = None,
+        curve_provider: CurveProviderLike | None = None,
         repository_factory: Callable[
             [Settings],
             IngestionRepository,
@@ -115,18 +115,18 @@ class PhaseZeroIngestionRunner:
             app_token=settings.cftc_app_token,
             raw_store=raw_store,
         )
-        self.cme_provider = cme_provider or CmeSettlementCurveProvider(raw_store=raw_store)
+        self.curve_provider = curve_provider or YahooFuturesConnector(raw_store=raw_store)
         self.repository_factory = repository_factory
         self.commodities = tuple(commodities)
         # Fold each commodity's inventory series into the EIA list (order-stable, de-duplicated),
-        # and derive the CME curve products straight from the commodity set.
+        # and derive the futures curve products straight from the commodity set.
         self.eia_series = tuple(
             dict.fromkeys(
                 [*eia_series, *(config.inventory_series_id for config in self.commodities)]
             )
         )
         self.fred_series = tuple(fred_series)
-        self.cme_products = tuple(
+        self.curve_products = tuple(
             dict.fromkeys(config.product_code for config in self.commodities)
         )
 
@@ -189,12 +189,12 @@ class PhaseZeroIngestionRunner:
                 ),
                 load=repository.upsert_cot_positions if repository is not None else None,
             )
-        for product_code in self.cme_products:
+        for product_code in self.curve_products:
             self._ingest_source(
                 runs,
-                source="cme",
+                source="yahoo",
                 name=f"{product_code} curve",
-                fetch=lambda product_code=product_code: self.cme_provider.fetch_curve(
+                fetch=lambda product_code=product_code: self.curve_provider.fetch_curve(
                     product_code=product_code, trade_date=trade_date
                 ),
                 load=repository.upsert_futures_settlements if repository is not None else None,

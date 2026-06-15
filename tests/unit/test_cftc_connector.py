@@ -18,9 +18,10 @@ def test_cftc_connector_normalizes_wti_swap_dealer_position() -> None:
             "market_and_exchange_names": "CRUDE OIL, LIGHT SWEET - NEW YORK MERCANTILE EXCHANGE",
             "cftc_contract_market_code": "067651",
             "open_interest_all": "1866415",
+            # Real Socrata field names: short/spread carry a double underscore.
             "swap_positions_long_all": "507669",
-            "swap_positions_short_all": "217401",
-            "swap_positions_spread_all": "109584",
+            "swap__positions_short_all": "217401",
+            "swap__positions_spread_all": "109584",
         }
     ]
 

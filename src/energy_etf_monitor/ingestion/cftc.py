@@ -116,9 +116,12 @@ class CftcCotConnector:
                     report_date=report_date,
                     knowledge_date=cot_knowledge_datetime(report_date),
                     open_interest=_to_int(row.get("open_interest_all")),
+                    # Socrata derives the short/spread field names with a double underscore from
+                    # the source columns; the single-underscore variants silently return None and
+                    # left swap-dealer net positioning unpopulated.
                     swap_dealer_long=_to_optional_int(row.get("swap_positions_long_all")),
-                    swap_dealer_short=_to_optional_int(row.get("swap_positions_short_all")),
-                    swap_dealer_spread=_to_optional_int(row.get("swap_positions_spread_all")),
+                    swap_dealer_short=_to_optional_int(row.get("swap__positions_short_all")),
+                    swap_dealer_spread=_to_optional_int(row.get("swap__positions_spread_all")),
                 )
             )
         return normalized

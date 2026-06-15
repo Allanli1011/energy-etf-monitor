@@ -63,3 +63,35 @@ def test_yahoo_curve_assembles_front_months_with_spreads() -> None:
     # Ordered by contract month starting at the trade month (June 2026).
     assert [s.contract_month.month for s in curve] == [6, 7, 8, 9]
     assert round(curve[0].settlement_price - curve[1].settlement_price, 2) == 0.70
+
+
+def test_yahoo_curve_history_emits_per_contract_settlements_in_range() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        symbol = request.url.path.rsplit("/", 1)[-1]
+        if not symbol.endswith(".NYM"):
+            return httpx.Response(404, json={"chart": {"result": None}})
+        return httpx.Response(
+            200,
+            json=_chart(
+                [
+                    (datetime(2026, 1, 5, tzinfo=UTC), 75.0),
+                    (datetime(2026, 1, 6, tzinfo=UTC), 76.0),
+                    (datetime(2026, 3, 1, tzinfo=UTC), 70.0),  # outside the requested range
+                ]
+            ),
+        )
+
+    connector = YahooFuturesConnector(
+        client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    rows = connector.fetch_curve_history(
+        product_code="CL",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        months_ahead=2,
+    )
+
+    # Only in-range observation dates, spread across multiple contract months.
+    assert rows
+    assert all(date(2026, 1, 1) <= row.report_date <= date(2026, 1, 31) for row in rows)
+    assert len({row.contract_month for row in rows}) >= 2
