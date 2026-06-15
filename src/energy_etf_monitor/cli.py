@@ -6,6 +6,7 @@ import typer
 
 from energy_etf_monitor.commodities import COMMODITIES, CommodityConfig, commodity_config
 from energy_etf_monitor.config import Settings
+from energy_etf_monitor.dashboard.static_report import write_static_site
 from energy_etf_monitor.features.export import export_daily_features_to_parquet
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.ingestion.cftc import CftcCotConnector
@@ -50,6 +51,18 @@ def init_db() -> None:
 
     create_db_and_tables(Settings())
     typer.echo("Database tables are ready.")
+
+
+@app.command()
+def render_report(
+    output_dir: str = typer.Option(
+        "site", "--output-dir", help="Directory for the generated static HTML site."
+    ),
+) -> None:
+    """Render a self-contained static HTML dashboard (one page per commodity) — no server, no JS."""
+
+    paths = write_static_site(Path(output_dir), settings=Settings(), as_of=datetime.now(UTC))
+    typer.echo(f"Wrote {len(paths)} static pages into {output_dir}")
 
 
 @app.command()

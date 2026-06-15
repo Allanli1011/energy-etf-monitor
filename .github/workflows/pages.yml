@@ -1,0 +1,51 @@
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+  # Rebuild the public report whenever the nightly pipeline finishes (fresh data on the state branch).
+  workflow_run:
+    workflows: [nightly]
+    types: [completed]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    # For workflow_run triggers only deploy when the upstream run succeeded; push/dispatch always run.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Restore SQLite state (if present)
+        run: bash .github/scripts/restore-state-db.sh
+      - name: Install
+        run: uv sync
+      - name: Build static site
+        run: |
+          uv run energy-etf-monitor init-db
+          uv run energy-etf-monitor render-report --output-dir site
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
