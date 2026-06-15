@@ -1,0 +1,37 @@
+name: html-preview
+
+on:
+  push:
+    branches:
+      - codex/official-etf-html-preview
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  ENERGY_ETF_MONITOR_DATABASE_URL: sqlite:///data/state/preview.sqlite
+
+jobs:
+  build-html:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync
+      - name: Build preview database
+        run: |
+          uv run energy-etf-monitor init-db
+          uv run energy-etf-monitor ingest-etf-holdings --load
+      - name: Render static HTML
+        run: uv run energy-etf-monitor render-report --output-dir site
+      - name: Upload static HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: energy-etf-monitor-html-preview
+          path: site
+          retention-days: 7
