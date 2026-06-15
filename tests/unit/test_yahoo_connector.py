@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 
 import httpx
 
-from energy_etf_monitor.ingestion.yahoo import YahooFuturesConnector
+from energy_etf_monitor.ingestion.yahoo import YahooEtfMetricsConnector, YahooFuturesConnector
 
 
 def _chart(points: list[tuple[datetime, float]]) -> dict:
@@ -95,3 +95,25 @@ def test_yahoo_curve_history_emits_per_contract_settlements_in_range() -> None:
     assert rows
     assert all(date(2026, 1, 1) <= row.report_date <= date(2026, 1, 31) for row in rows)
     assert len({row.contract_month for row in rows}) >= 2
+
+
+def test_yahoo_etf_metrics_approximates_shares_from_aum_and_price() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/getcrumb"):
+            return httpx.Response(200, text="testcrumb")
+        if "quoteSummary" in path:
+            return httpx.Response(200, json={"quoteSummary": {"result": [{
+                "price": {"regularMarketPrice": {"raw": 80.0}},
+                "defaultKeyStatistics": {"totalAssets": {"raw": 1_600_000_000.0}}}]}})
+        return httpx.Response(200, text="")  # cookie-priming fetch
+
+    connector = YahooEtfMetricsConnector(
+        client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    metric = connector.fetch_metric(fund_ticker="USO")
+
+    assert metric.fund_ticker == "USO"
+    assert metric.total_net_assets == 1_600_000_000.0
+    assert metric.nav_per_share == 80.0
+    assert metric.shares_outstanding == 20_000_000.0  # AUM / price

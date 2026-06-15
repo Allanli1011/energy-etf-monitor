@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from energy_etf_monitor.commodities import COMMODITIES
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.dashboard.data import feature_time_series, news_panel_rows
-from energy_etf_monitor.records import DailyFeatureRow, NewsArticle
+from energy_etf_monitor.records import DailyFeatureRow, FundDailyMetric, NewsArticle
 from energy_etf_monitor.storage.repository import IngestionRepository
 
 # USCF single-commodity roll window: front-month funds roll early each month (business days ~5–9).
@@ -105,12 +105,34 @@ def _roll_status(as_of: date) -> dict:
             "days_until": days_until, "in_window": in_window, "level": level, "message": message}
 
 
+def _flow_section(commodity: str, fund_metrics: Sequence[FundDailyMetric]) -> dict:
+    config = COMMODITIES.get(commodity)
+    fund = config.crowding_fund_ticker if config else None
+    ordered = sorted(fund_metrics, key=lambda m: m.report_date)
+    return {
+        "fund": fund,
+        "dates": [m.report_date.isoformat() for m in ordered],
+        "values": [None if m.implied_flow_usd is None else round(m.implied_flow_usd / 1e6, 3)
+                   for m in ordered],
+        "title": f"ETF creation / redemption — {fund}" if fund else "ETF creation / redemption",
+        "yLabel": "Daily flow ($M)",
+        "explain": "Estimated daily creation (positive) and redemption (negative) for the "
+                   f"futures-based ETF tracking this commodity ({fund or 'n/a'}). Derived from the "
+                   "day-over-day change in shares outstanding (approximated as Yahoo AUM ÷ price) "
+                   "× NAV. Sustained creation means new money flowing in — those dollars must buy "
+                   "futures, and around the monthly roll that flow can move the front-of-curve "
+                   "spread. Going-forward only: it begins accumulating once collection starts, so "
+                   "early on this chart is sparse.",
+    }
+
+
 def render_dashboard_html(
     *,
     commodity: str,
     feature_rows: Sequence[DailyFeatureRow],
     news: Sequence[NewsArticle],
     as_of: datetime,
+    fund_metrics: Sequence[FundDailyMetric] = (),
     commodities: Sequence[str] = tuple(COMMODITIES),
 ) -> str:
     """Render one commodity's factor dashboard into a self-contained interactive HTML document."""
@@ -134,17 +156,22 @@ def render_dashboard_html(
         "cot": {**COT_CHART, **_series(feature_rows, COT_CHART["column"])},
         "inventory": _series(feature_rows, INVENTORY_VALUE["column"]),
         "surprise": _series(feature_rows, INVENTORY_SURPRISE["column"]),
+        "flow": _flow_section(commodity, fund_metrics),
         "news": news_rows,
     }
     return _PAGE.replace("/*__DASH__*/", json.dumps(data))
 
 
 def build_commodity_html(commodity: str, settings: Settings, as_of: datetime) -> str:
+    config = COMMODITIES.get(commodity)
+    fund = config.crowding_fund_ticker if config else None
     with IngestionRepository.from_settings(settings) as repository:
         feature_rows = repository.list_daily_feature_rows(commodity=commodity)
         news = repository.list_news_articles(as_of=as_of, limit=25)
+        fund_metrics = repository.list_fund_daily_metrics(fund_ticker=fund) if fund else []
     return render_dashboard_html(
-        commodity=commodity, feature_rows=feature_rows, news=news, as_of=as_of
+        commodity=commodity, feature_rows=feature_rows, news=news,
+        as_of=as_of, fund_metrics=fund_metrics,
     )
 
 
@@ -271,6 +298,11 @@ function chartCard(title, explain){
 }
 
 function renderCharts(){
+  // ETF creation/redemption flow (going-forward; may be empty early on)
+  if(DASH.flow && DASH.flow.dates && DASH.flow.dates.length){
+    const fl=clip(DASH.flow,RANGE);
+    setChart(DASH.flow.title, chartSVG(fl.dates,[{name:DASH.flow.yLabel,color:PALETTE[4],values:fl.values,axis:0}]));
+  }
   // Price
   const price=clip(DASH.price,RANGE);
   setChart(DASH.price.title, chartSVG(price.dates,[{name:DASH.price.yLabel,color:PALETTE[0],values:price.values,axis:0}]));
@@ -316,6 +348,7 @@ function render(){
     <p class="explain">USCF single-commodity funds publish their roll methodology; this is the standard early-month window. The alert is a heads-up that fund roll flows are imminent — it is informational, not a trade signal.</p>
     <div class="ranges"><b>Time range (applies to all charts):</b> ${rangeBtns}</div>
     <div id="charts">
+      ${d.flow && d.flow.fund ? chartCard(d.flow.title, d.flow.explain) : ""}
       ${chartCard(d.price.title, d.price.explain)}
       ${chartCard(d.cot.title, d.cot.explain)}
       ${chartCard("Inventory & seasonal surprise", "EIA inventory level (left axis) vs. its seasonal surprise — how far the latest level sits from the typical level for this time of year, in standard deviations (right axis). The two are on separate axes because their scales differ by orders of magnitude. A large positive surprise (more inventory than seasonal norm) is generally bearish for price; a negative surprise is bullish.")}

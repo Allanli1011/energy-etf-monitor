@@ -57,6 +57,7 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
     assert 'target="_blank"' in page  # JS renders news titles as links opening in a new tab
     assert "OPEC cuts output" in page
     assert "<script>" in page  # interactive (vanilla JS, self-contained)
+    assert "creation / redemption" in page.lower()  # ETF flow section present (even if empty early)
     # The prediction view is gone.
     assert "P(price up)" not in page and "Today's call" not in page
 

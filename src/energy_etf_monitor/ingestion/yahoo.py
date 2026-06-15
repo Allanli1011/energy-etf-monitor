@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from energy_etf_monitor.ingestion.base import RawPayloadStore
-from energy_etf_monitor.records import FuturesSettlement
+from energy_etf_monitor.records import FundDailyMetric, FuturesSettlement
 
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
 SETTLEMENT_TZ = ZoneInfo("America/New_York")
@@ -201,6 +201,83 @@ class YahooFuturesConnector:
                 label=f"{root}_curve_history",
             )
         return settlements
+
+
+class YahooEtfMetricsConnector:
+    """Daily ETF AUM + price from Yahoo, turned into a FundDailyMetric for flow tracking.
+
+    Yahoo exposes an ETF's total net assets and market price but not its share count, so shares are
+    approximated as ``AUM / price`` (price ≈ NAV for these funds). Day-over-day share changes then
+    imply creation/redemption flow. This is going-forward only (no historical AUM series) and the
+    quoteSummary endpoint is crumb-gated, so a failed fetch should be skipped, not fatal.
+    """
+
+    source = "yahoo_etf"
+
+    def __init__(
+        self,
+        *,
+        raw_store: RawPayloadStore | None = None,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self.raw_store = raw_store
+        self.client = client
+
+    def fetch_metric(self, *, fund_ticker: str) -> FundDailyMetric:
+        fetched_at = datetime.now(UTC)
+        client = self.client or httpx.Client(
+            timeout=30, headers={"User-Agent": _BROWSER_UA}, follow_redirects=True
+        )
+        close_client = self.client is None
+        try:
+            # Prime the cookie (fc.yahoo.com sets the one getcrumb needs — it 404s, that's fine),
+            # fetch a crumb, then call the crumb-gated quoteSummary endpoint.
+            try:
+                client.get("https://fc.yahoo.com")
+            except httpx.HTTPError:
+                pass
+            crumb = client.get("https://query1.finance.yahoo.com/v1/test/getcrumb").text.strip()
+            if not crumb or len(crumb) > 32 or "{" in crumb:
+                raise ValueError(f"Yahoo did not return a usable crumb for {fund_ticker}")
+            response = client.get(
+                f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{fund_ticker}",
+                params={"modules": "price,defaultKeyStatistics", "crumb": crumb},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        finally:
+            if close_client:
+                client.close()
+
+        if self.raw_store:
+            self.raw_store.save_json(
+                source=self.source, payload=payload, fetched_at=fetched_at,
+                label=f"{fund_ticker.lower()}_metrics",
+            )
+        return _metric_from_quote_summary(payload, fund_ticker=fund_ticker, fetched_at=fetched_at)
+
+
+def _metric_from_quote_summary(
+    payload: dict, *, fund_ticker: str, fetched_at: datetime
+) -> FundDailyMetric:
+    results = (payload.get("quoteSummary") or {}).get("result")
+    if not results:
+        raise ValueError(f"Yahoo returned no quoteSummary for {fund_ticker}")
+    result = results[0]
+    price = (((result.get("price") or {}).get("regularMarketPrice") or {}).get("raw"))
+    aum = (((result.get("defaultKeyStatistics") or {}).get("totalAssets") or {}).get("raw"))
+    if not price or not aum:
+        raise ValueError(f"Yahoo returned no price/AUM for {fund_ticker}")
+    price, aum = float(price), float(aum)
+    return FundDailyMetric(
+        source=YahooEtfMetricsConnector.source,
+        fund_ticker=fund_ticker.upper(),
+        report_date=fetched_at.date(),
+        knowledge_date=fetched_at,
+        nav_per_share=price,
+        shares_outstanding=aum / price,
+        total_net_assets=aum,
+    )
 
 
 def _resolve_symbols(product_code: str) -> tuple[str, str]:

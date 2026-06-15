@@ -657,6 +657,24 @@ class IngestionRepository:
         statement = statement.order_by(DailyFeatureRowModel.report_date.asc())
         return [_row_to_daily_feature(row) for row in self.session.exec(statement).all()]
 
+    def list_fund_daily_metrics(
+        self,
+        *,
+        fund_ticker: str,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[FundDailyMetric]:
+        statement = select(FundDailyMetricRow).where(
+            FundDailyMetricRow.fund_ticker == fund_ticker,
+            FundDailyMetricRow.quarantine.is_(False),
+        )
+        if start_date is not None:
+            statement = statement.where(FundDailyMetricRow.report_date >= start_date)
+        if end_date is not None:
+            statement = statement.where(FundDailyMetricRow.report_date <= end_date)
+        statement = statement.order_by(FundDailyMetricRow.report_date.asc())
+        return [_row_to_fund_metric(row) for row in self.session.exec(statement).all()]
+
     def latest_daily_feature_row(
         self,
         *,

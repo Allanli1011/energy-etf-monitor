@@ -21,7 +21,7 @@ from energy_etf_monitor.ingestion.runner import (
     PhaseZeroIngestionRunner,
 )
 from energy_etf_monitor.ingestion.uscf import UscfPcfConnector
-from energy_etf_monitor.ingestion.yahoo import YahooFuturesConnector
+from energy_etf_monitor.ingestion.yahoo import YahooEtfMetricsConnector, YahooFuturesConnector
 from energy_etf_monitor.modeling.artifacts import save_model_artifact, train_logistic_artifact
 from energy_etf_monitor.modeling.baselines import evaluate_walk_forward_baselines
 from energy_etf_monitor.modeling.dataset import (
@@ -826,6 +826,32 @@ def ingest_yahoo_curve_history(
     if load:
         with IngestionRepository.from_settings(settings) as repository:
             _echo_load_result(repository.upsert_futures_settlements(rows))
+
+
+@app.command()
+def ingest_etf_metrics(
+    fund: Annotated[list[str] | None, typer.Option("--fund")] = None,
+    load: bool = typer.Option(False, "--load"),
+) -> None:
+    """Fetch daily ETF AUM/price from Yahoo and derive creation/redemption flow (going-forward)."""
+
+    settings = Settings()
+    tickers = [f.upper() for f in fund] if fund else [
+        config.crowding_fund_ticker
+        for config in COMMODITIES.values()
+        if config.crowding_fund_ticker
+    ]
+    connector = YahooEtfMetricsConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
+    metrics = []
+    for ticker in tickers:
+        try:
+            metrics.append(connector.fetch_metric(fund_ticker=ticker))
+        except Exception as exc:  # one fund failing (crumb/rate-limit) must not abort the rest
+            typer.echo(f"  ! skipped {ticker} — {exc}")
+    typer.echo(f"Fetched {len(metrics)} ETF metric snapshots ({', '.join(tickers)}).")
+    if load and metrics:
+        with IngestionRepository.from_settings(settings) as repository:
+            _echo_load_result(repository.upsert_fund_daily_metrics(metrics))
 
 
 def _echo_load_result(result: LoadResult) -> None:

@@ -62,6 +62,10 @@ jobs:
               echo "No $C models yet; run the backfill workflow to create them."
             fi
           done
+      - name: Ingest ETF metrics (creation/redemption)
+        # Going-forward ETF AUM/price from Yahoo -> implied creation/redemption flow.
+        # Best-effort (crumb-gated endpoint): never fail the run.
+        run: uv run energy-etf-monitor ingest-etf-metrics --load || echo "ETF metrics skipped"
       - name: Push SQLite state
         env:
           GITHUB_TOKEN: ${{ github.token }}
