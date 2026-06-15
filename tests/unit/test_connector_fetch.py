@@ -13,7 +13,8 @@ from energy_etf_monitor.ingestion.fred import FredSeriesConnector
 
 def test_eia_fetch_series_uses_api_key_and_saves_raw_payload(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/WCESTUS1")
+        # Legacy weekly series are routed through the dotted v2 compat id.
+        assert request.url.path.endswith("/PET.WCESTUS1.W")
         assert request.url.params["api_key"] == "eia-key"
         return httpx.Response(
             200,

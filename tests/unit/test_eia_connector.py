@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import httpx
+
 from energy_etf_monitor.ingestion.eia import EiaSeriesConnector
 
 
@@ -55,4 +57,25 @@ def test_eia_connector_parses_monthly_and_annual_periods_and_skips_bad_rows() ->
     # unparseable row is skipped rather than crashing the whole series.
     assert [row.report_date.isoformat() for row in rows] == ["2026-05-01", "2026-01-01"]
     assert [row.value for row in rows] == [10.0, 30.0]
+
+
+def test_eia_fetch_routes_legacy_series_but_stores_canonical_code() -> None:
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        row = {"period": "2026-06-05", "series": "WCESTUS1", "value": "1", "units": "MBBL"}
+        return httpx.Response(200, json={"response": {"data": [row]}})
+
+    connector = EiaSeriesConnector(
+        api_key="eia-key",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    rows = connector.fetch_series("WCESTUS1")
+
+    # Routed through the dotted v2 compat id, but stored under the canonical bare code so the
+    # feature pipeline's inventory lookup (by series id) still resolves.
+    assert captured["path"].endswith("/PET.WCESTUS1.W")
+    assert rows[0].series_id == "WCESTUS1"
 

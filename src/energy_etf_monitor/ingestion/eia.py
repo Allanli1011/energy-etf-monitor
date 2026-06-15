@@ -6,6 +6,18 @@ import httpx
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.records import TimeSeriesObservation
 
+# The EIA v2 "seriesid" compatibility route addresses legacy weekly petroleum series by their full
+# v1-style id (category prefix + ".W" frequency suffix), e.g. WCESTUS1 -> PET.WCESTUS1.W. A bare id
+# returns HTTP 404. We keep the bare code as the canonical storage/feature key and only translate it
+# for the HTTP request; already-qualified ids (e.g. the NatGas NG.* series) pass through unchanged.
+SERIESID_ROUTE_ALIASES = {
+    "WCESTUS1": "PET.WCESTUS1.W",
+    "WCRSTUS1": "PET.WCRSTUS1.W",
+    "WCSSTUS1": "PET.WCSSTUS1.W",
+    "W_EPC0_SAX_YCUOK_MBBL": "PET.W_EPC0_SAX_YCUOK_MBBL.W",
+    "WGTSTUS1": "PET.WGTSTUS1.W",
+}
+
 
 class EiaSeriesConnector:
     source = "eia"
@@ -24,11 +36,12 @@ class EiaSeriesConnector:
 
     def fetch_series(self, series_id: str) -> list[TimeSeriesObservation]:
         fetched_at = datetime.now(UTC)
+        route_id = SERIESID_ROUTE_ALIASES.get(series_id, series_id)
         params = {"api_key": self.api_key} if self.api_key else {}
         client = self.client or httpx.Client(timeout=30)
         close_client = self.client is None
         try:
-            response = client.get(f"{self.base_url}/{series_id}", params=params)
+            response = client.get(f"{self.base_url}/{route_id}", params=params)
             response.raise_for_status()
             payload = response.json()
         finally:
@@ -68,12 +81,12 @@ class EiaSeriesConnector:
             normalized.append(
                 TimeSeriesObservation(
                     source=EiaSeriesConnector.source,
-                    series_id=str(row.get("series") or series_id),
+                    series_id=series_id,
                     report_date=report_date,
                     knowledge_date=fetched_at,
                     value=numeric_value,
                     unit=row.get("units"),
-                    metadata={"raw_period": row.get("period")},
+                    metadata={"raw_period": row.get("period"), "eia_series": row.get("series")},
                 )
             )
         return normalized
