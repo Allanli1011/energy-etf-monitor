@@ -4,9 +4,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch: {}
-  # Rebuild the public report whenever the nightly pipeline finishes (fresh data on the state branch).
+  # Rebuild the public report whenever the nightly pipeline or a backfill finishes (fresh data on
+  # the state branch).
   workflow_run:
-    workflows: [nightly]
+    workflows: [nightly, backfill]
     types: [completed]
 
 permissions:

@@ -1,0 +1,81 @@
+name: backfill
+
+# Manual one-shot (and re-runnable): rebuild a multi-year history of WTI feature rows from the
+# free data sources, train the model artifacts on it, and publish both the state DB and the models.
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Feature backfill start date (YYYY-MM-DD)"
+        default: "2024-06-15"
+      end_date:
+        description: "Feature backfill end date (YYYY-MM-DD); blank = today"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sqlite-state
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  STATE_BRANCH: state
+  STATE_DB_PATH: data/state/energy_etf_monitor.sqlite
+  ENERGY_ETF_MONITOR_DATABASE_URL: sqlite:///data/state/energy_etf_monitor.sqlite
+  ENERGY_ETF_MONITOR_EIA_API_KEY: ${{ secrets.ENERGY_ETF_MONITOR_EIA_API_KEY }}
+  ENERGY_ETF_MONITOR_FRED_API_KEY: ${{ secrets.ENERGY_ETF_MONITOR_FRED_API_KEY }}
+  ENERGY_ETF_MONITOR_CFTC_APP_TOKEN: ${{ secrets.ENERGY_ETF_MONITOR_CFTC_APP_TOKEN }}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Restore SQLite state (if present)
+        run: bash .github/scripts/restore-state-db.sh
+      - name: Install
+        run: uv sync
+      - name: Initialize database schema
+        run: uv run energy-etf-monitor init-db
+      - name: Resolve end date
+        id: dates
+        run: echo "end=${END:-$(date -u +%F)}" >> "$GITHUB_OUTPUT"
+        env:
+          END: ${{ inputs.end_date }}
+      - name: Ingest history (EIA / FRED / CFTC + Yahoo futures curve)
+        run: |
+          uv run energy-etf-monitor ingest-phase0 --commodity WTI --load
+          uv run energy-etf-monitor ingest-yahoo-curve-history --commodity WTI \
+            --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" --load
+      - name: Backfill point-in-time feature rows
+        run: |
+          uv run energy-etf-monitor build-feature-range --commodity WTI \
+            --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" \
+            --as-of-time "23:00:00+00:00"
+      - name: Train model artifacts
+        run: |
+          uv run energy-etf-monitor export-feature-cache --commodity WTI --output-path /tmp/wti.parquet
+          uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache /tmp/wti.parquet \
+            --target-name price_direction --output-path models/wti_price_logistic.json
+          uv run energy-etf-monitor train-wti-logistic-artifact --feature-cache /tmp/wti.parquet \
+            --target-name spread_direction --output-path models/wti_spread_logistic.json
+      - name: Commit model artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add models/
+          if git diff --cached --quiet; then
+            echo "No model changes to commit."
+          else
+            git commit -m "chore: backfill-trained WTI model artifacts [skip ci]"
+            git push
+          fi
+      - name: Push SQLite state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/push-state-db.sh
