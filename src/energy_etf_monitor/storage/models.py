@@ -48,6 +48,12 @@ class CotPositionRow(SQLModel, table=True):
     swap_dealer_long: int | None = None
     swap_dealer_short: int | None = None
     swap_dealer_spread: int | None = None
+    producer_merchant_long: int | None = None
+    producer_merchant_short: int | None = None
+    managed_money_long: int | None = None
+    managed_money_short: int | None = None
+    other_reportable_long: int | None = None
+    other_reportable_short: int | None = None
     quarantine: bool = Field(default=False, index=True)
 
 

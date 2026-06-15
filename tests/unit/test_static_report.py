@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 from energy_etf_monitor.dashboard.static_report import render_dashboard_html
-from energy_etf_monitor.records import DailyFeatureRow, NewsArticle
+from energy_etf_monitor.records import CotPosition, DailyFeatureRow, NewsArticle
 
 
 def _feature_row(report_date: date, price: float, cot: float, inventory: float) -> DailyFeatureRow:
@@ -14,6 +14,26 @@ def _feature_row(report_date: date, price: float, cot: float, inventory: float) 
         cot_swap_dealer_net=cot,
         inventory_value=inventory,
         inventory_seasonal_surprise=0.5,
+    )
+
+
+def _cot(report_date: date) -> CotPosition:
+    return CotPosition(
+        source="cftc",
+        commodity="WTI",
+        market_name="CRUDE OIL, LIGHT SWEET",
+        contract_market_code="067651",
+        report_date=report_date,
+        knowledge_date=datetime.combine(report_date, datetime.min.time(), tzinfo=UTC),
+        open_interest=1_000_000,
+        swap_dealer_long=90_000,
+        swap_dealer_short=600_000,
+        producer_merchant_long=690_000,
+        producer_merchant_short=320_000,
+        managed_money_long=210_000,
+        managed_money_short=110_000,
+        other_reportable_long=140_000,
+        other_reportable_short=110_000,
     )
 
 
@@ -44,6 +64,7 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
         feature_rows=rows,
         news=[_news(as_of)],
         as_of=as_of,
+        cot_positions=[_cot(day) for day in days],
         commodities=("WTI", "NATGAS"),
     )
 
@@ -58,6 +79,11 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
     assert "OPEC cuts output" in page
     assert "<script>" in page  # interactive (vanilla JS, self-contained)
     assert "creation / redemption" in page.lower()  # ETF flow section present (even if empty early)
+    # COT is now broken out by disaggregated trader type, not a single swap-dealer net.
+    assert "Positioning by trader type" in page
+    assert "Producer / merchant" in page and "Managed money" in page
+    assert "370000" in page  # producer/merchant net (690000 - 320000) embedded
+    assert "mousemove" in page  # hover tooltips wired
     # The prediction view is gone.
     assert "P(price up)" not in page and "Today's call" not in page
 

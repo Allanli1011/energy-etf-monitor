@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from energy_etf_monitor.commodities import COMMODITIES
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.dashboard.data import feature_time_series, news_panel_rows
-from energy_etf_monitor.records import DailyFeatureRow, FundDailyMetric, NewsArticle
+from energy_etf_monitor.records import CotPosition, DailyFeatureRow, FundDailyMetric, NewsArticle
 from energy_etf_monitor.storage.repository import IngestionRepository
 
 # USCF single-commodity roll window: front-month funds roll early each month (business days ~5–9).
@@ -50,15 +50,6 @@ PRICE_CHART = {
                "most direct read on the commodity itself; everything else on this page is a factor "
                "that pushes it around.",
 }
-COT_CHART = {
-    "key": "cot", "column": "cot_swap_dealer_net",
-    "title": "Positioning — swap-dealer net (CFTC COT)",
-    "yLabel": "Net contracts",
-    "explain": "Swap dealers' net long−short position from the weekly CFTC Commitments of Traders "
-               "report. Swap dealers largely intermediate index/ETF and producer-hedger flow, so a "
-               "large or fast-changing net position is a proxy for crowded positioning and hedging "
-               "pressure. Reported Tuesday, released Friday (lagged here accordingly).",
-}
 INVENTORY_VALUE = {"key": "inventory", "column": "inventory_value"}
 INVENTORY_SURPRISE = {"key": "surprise", "column": "inventory_seasonal_surprise"}
 
@@ -68,6 +59,38 @@ def _series(feature_rows: Sequence[DailyFeatureRow], column: str) -> dict:
     return {
         "dates": [d.isoformat() for d in ts.dates],
         "values": [None if v is None else round(float(v), 4) for v in ts.series[column]],
+    }
+
+
+def _cot_series(cot_positions: Sequence[CotPosition]) -> dict:
+    ordered = sorted(cot_positions, key=lambda c: c.report_date)
+
+    def net(long_value, short_value):
+        if long_value is None or short_value is None:
+            return None
+        return int(long_value) - int(short_value)
+
+    categories = [
+        ("Producer / merchant (hedgers)", "producer_merchant_long", "producer_merchant_short"),
+        ("Swap dealers", "swap_dealer_long", "swap_dealer_short"),
+        ("Managed money (speculators)", "managed_money_long", "managed_money_short"),
+        ("Other reportables", "other_reportable_long", "other_reportable_short"),
+    ]
+    return {
+        "dates": [c.report_date.isoformat() for c in ordered],
+        "series": [
+            {"name": name,
+             "values": [net(getattr(c, lo), getattr(c, sh)) for c in ordered]}
+            for name, lo, sh in categories
+        ],
+        "title": "Positioning by trader type — net (CFTC disaggregated COT)",
+        "yLabel": "Net contracts (long − short)",
+        "explain": "Net position (long − short) for each CFTC disaggregated trader category. "
+                   "Producer / merchant / processor / user are the physical hedgers (producers "
+                   "tend net short, consumers net long) — this is the producer-hedger flow. Swap "
+                   "dealers mostly offset index/ETF exposure; managed money is speculative (CTAs, "
+                   "funds); other reportables are the remaining large traders. Weekly: reported "
+                   "Tuesday, released Friday (lagged here accordingly).",
     }
 
 
@@ -133,6 +156,7 @@ def render_dashboard_html(
     news: Sequence[NewsArticle],
     as_of: datetime,
     fund_metrics: Sequence[FundDailyMetric] = (),
+    cot_positions: Sequence[CotPosition] = (),
     commodities: Sequence[str] = tuple(COMMODITIES),
 ) -> str:
     """Render one commodity's factor dashboard into a self-contained interactive HTML document."""
@@ -153,7 +177,7 @@ def render_dashboard_html(
         "funds": FUNDS_BY_COMMODITY.get(commodity, []),
         "roll": _roll_status(as_of.date()),
         "price": {**PRICE_CHART, **_series(feature_rows, PRICE_CHART["column"])},
-        "cot": {**COT_CHART, **_series(feature_rows, COT_CHART["column"])},
+        "cot": _cot_series(cot_positions),
         "inventory": _series(feature_rows, INVENTORY_VALUE["column"]),
         "surprise": _series(feature_rows, INVENTORY_SURPRISE["column"]),
         "flow": _flow_section(commodity, fund_metrics),
@@ -169,9 +193,10 @@ def build_commodity_html(commodity: str, settings: Settings, as_of: datetime) ->
         feature_rows = repository.list_daily_feature_rows(commodity=commodity)
         news = repository.list_news_articles(as_of=as_of, limit=25)
         fund_metrics = repository.list_fund_daily_metrics(fund_ticker=fund) if fund else []
+        cot_positions = repository.list_cot_positions(commodity=commodity)
     return render_dashboard_html(
         commodity=commodity, feature_rows=feature_rows, news=news,
-        as_of=as_of, fund_metrics=fund_metrics,
+        as_of=as_of, fund_metrics=fund_metrics, cot_positions=cot_positions,
     )
 
 
@@ -227,7 +252,12 @@ a{color:#6cb6ff}
 padding:5px 12px;cursor:pointer;font:inherit;font-size:13px}
 .ranges button.on{background:#1f6feb;color:#fff;border-color:#1f6feb}
 .chartcard{margin-top:14px}
+.chart{position:relative}
 .chart svg{width:100%;height:auto;background:#10151c;border:1px solid #1c232d;border-radius:10px;display:block}
+.tip{position:absolute;pointer-events:none;background:#1b2430;border:1px solid #2b3340;border-radius:8px;
+padding:6px 9px;font-size:12px;color:#e6edf3;box-shadow:0 4px 14px rgba(0,0,0,.45);z-index:5;white-space:nowrap}
+.tip b{display:block;margin-bottom:3px;color:#9aa7b4;font-weight:600}
+.tip i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
 .axis{stroke:#39424d;stroke-width:1}.grid{stroke:#1a212b;stroke-width:1}
 .axlbl{fill:#7d8a97;font-size:10px}
 .legend{margin:6px 2px 0;color:#9aa7b4;font-size:12px}
@@ -297,26 +327,68 @@ function chartCard(title, explain){
        + `<p class="explain">${esc(explain)}</p></div>`;
 }
 
+const VBW=980, PADL=58, PLOTW=864, XH_Y1=14, XH_Y2=230;
+
 function renderCharts(){
-  // ETF creation/redemption flow (going-forward; may be empty early on)
+  // ETF creation / redemption (going-forward; may be empty early on)
   if(DASH.flow && DASH.flow.dates && DASH.flow.dates.length){
     const fl=clip(DASH.flow,RANGE);
-    setChart(DASH.flow.title, chartSVG(fl.dates,[{name:DASH.flow.yLabel,color:PALETTE[4],values:fl.values,axis:0}]));
+    setChart(DASH.flow.title, fl.dates, [{name:DASH.flow.yLabel,color:PALETTE[4],values:fl.values,axis:0}]);
   }
-  // Price
+  // Front-month price
   const price=clip(DASH.price,RANGE);
-  setChart(DASH.price.title, chartSVG(price.dates,[{name:DASH.price.yLabel,color:PALETTE[0],values:price.values,axis:0}]));
-  // Positioning
-  const cot=clip(DASH.cot,RANGE);
-  setChart(DASH.cot.title, chartSVG(cot.dates,[{name:DASH.cot.yLabel,color:PALETTE[2],values:cot.values,axis:0}]));
+  setChart(DASH.price.title, price.dates, [{name:DASH.price.yLabel,color:PALETTE[0],values:price.values,axis:0}]);
+  // Positioning by trader type (multi-series net)
+  const cot=clipMulti(DASH.cot.dates,DASH.cot.series,RANGE);
+  setChart(DASH.cot.title, cot.dates,
+    cot.series.map((s,i)=>({name:s.name,color:PALETTE[i%PALETTE.length],values:s.values,axis:0})));
   // Inventory dual axis (value left, surprise right) — align on inventory dates
   const inv=clip(DASH.inventory,RANGE), sur=clip(DASH.surprise,RANGE);
-  setChart("Inventory & seasonal surprise", chartSVG(inv.dates,[
+  setChart("Inventory & seasonal surprise", inv.dates, [
     {name:"Inventory level",color:PALETTE[1],values:inv.values,axis:0},
-    {name:"Seasonal surprise (z)",color:PALETTE[3],values:alignTo(inv.dates,sur),axis:1}]));
+    {name:"Seasonal surprise (z)",color:PALETTE[3],values:alignTo(inv.dates,sur),axis:1}]);
+}
+function clipMulti(dates, series, months){
+  if(!months || !dates.length) return {dates, series};
+  const last=new Date(dates[dates.length-1]+"T00:00:00Z"); const cut=new Date(last); cut.setUTCMonth(cut.getUTCMonth()-months);
+  const keep=[]; for(let i=0;i<dates.length;i++) if(new Date(dates[i]+"T00:00:00Z")>=cut) keep.push(i);
+  return {dates:keep.map(i=>dates[i]), series:series.map(s=>({...s,values:keep.map(i=>s.values[i])}))};
 }
 function alignTo(dates, series){const m=new Map(); for(let i=0;i<series.dates.length;i++)m.set(series.dates[i],series.values[i]); return dates.map(d=>m.has(d)?m.get(d):null);}
-function setChart(title, svg){const el=document.querySelector(`.chart[data-chart="${cssEsc(title)}"]`); if(el)el.innerHTML=svg;}
+function setChart(title, dates, series){
+  const el=document.querySelector(`.chart[data-chart="${cssEsc(title)}"]`); if(!el) return;
+  if(!dates || !dates.length){ el.innerHTML='<div class="empty">no data in this range</div>'; el._meta=null; return; }
+  el.innerHTML = chartSVG(dates, series) + '<div class="tip" style="display:none"></div>';
+  el._meta = {dates, series};
+  attachHover(el);
+}
+function attachHover(el){
+  const svg=el.querySelector("svg"); const tip=el.querySelector(".tip"); const meta=el._meta;
+  if(!svg || !tip || !meta) return;
+  svg.addEventListener("mousemove", ev=>{
+    const rect=svg.getBoundingClientRect(); if(!rect.width) return;
+    const n=meta.dates.length;
+    const xvb=(ev.clientX-rect.left)/rect.width*VBW;
+    let idx=Math.round((xvb-PADL)/PLOTW*(n<2?0:(n-1))); idx=Math.max(0,Math.min(n-1,idx));
+    let rows="", any=false;
+    for(const s of meta.series){ const v=s.values[idx]; if(v==null)continue; any=true;
+      rows+=`<div><i style="background:${s.color}"></i>${esc(s.name)}: ${fmtFull(v)}</div>`; }
+    if(!any){ tip.style.display="none"; return; }
+    tip.innerHTML=`<b>${esc(meta.dates[idx])}</b>${rows}`; tip.style.display="block";
+    const crect=el.getBoundingClientRect();
+    let left=ev.clientX-crect.left+14; if(left>crect.width-180) left=ev.clientX-crect.left-170;
+    tip.style.left=left+"px"; tip.style.top=Math.max(4,ev.clientY-crect.top+12)+"px";
+    crosshair(svg, PADL+PLOTW*(n<2?0:idx/(n-1)));
+  });
+  svg.addEventListener("mouseleave", ()=>{ tip.style.display="none"; const l=svg.querySelector("#xhair"); if(l)l.remove(); });
+}
+function crosshair(svg, xvb){
+  let line=svg.querySelector("#xhair");
+  if(!line){ line=document.createElementNS("http://www.w3.org/2000/svg","line"); line.id="xhair";
+    line.setAttribute("stroke","#56708a"); line.setAttribute("stroke-width","1"); line.setAttribute("stroke-dasharray","3 3"); svg.appendChild(line); }
+  line.setAttribute("x1",xvb); line.setAttribute("x2",xvb); line.setAttribute("y1",XH_Y1); line.setAttribute("y2",XH_Y2);
+}
+function fmtFull(v){ return (Math.round(v*100)/100).toLocaleString(); }
 function cssEsc(s){return s.replace(/"/g,'\\"');}
 
 function render(){

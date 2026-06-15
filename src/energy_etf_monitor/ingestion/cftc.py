@@ -122,6 +122,13 @@ class CftcCotConnector:
                     swap_dealer_long=_to_optional_int(row.get("swap_positions_long_all")),
                     swap_dealer_short=_to_optional_int(row.get("swap__positions_short_all")),
                     swap_dealer_spread=_to_optional_int(row.get("swap__positions_spread_all")),
+                    # prod_merc / other_rept position columns carry no "_all" suffix in Socrata.
+                    producer_merchant_long=_to_optional_int(row.get("prod_merc_positions_long")),
+                    producer_merchant_short=_to_optional_int(row.get("prod_merc_positions_short")),
+                    managed_money_long=_to_optional_int(row.get("m_money_positions_long_all")),
+                    managed_money_short=_to_optional_int(row.get("m_money_positions_short_all")),
+                    other_reportable_long=_to_optional_int(row.get("other_rept_positions_long")),
+                    other_reportable_short=_to_optional_int(row.get("other_rept_positions_short")),
                 )
             )
         return normalized

@@ -143,6 +143,12 @@ class IngestionRepository:
                         swap_dealer_long=gated.swap_dealer_long,
                         swap_dealer_short=gated.swap_dealer_short,
                         swap_dealer_spread=gated.swap_dealer_spread,
+                        producer_merchant_long=gated.producer_merchant_long,
+                        producer_merchant_short=gated.producer_merchant_short,
+                        managed_money_long=gated.managed_money_long,
+                        managed_money_short=gated.managed_money_short,
+                        other_reportable_long=gated.other_reportable_long,
+                        other_reportable_short=gated.other_reportable_short,
                         quarantine=gated.quarantine,
                     )
                 )
@@ -154,6 +160,12 @@ class IngestionRepository:
                 existing.swap_dealer_long = gated.swap_dealer_long
                 existing.swap_dealer_short = gated.swap_dealer_short
                 existing.swap_dealer_spread = gated.swap_dealer_spread
+                existing.producer_merchant_long = gated.producer_merchant_long
+                existing.producer_merchant_short = gated.producer_merchant_short
+                existing.managed_money_long = gated.managed_money_long
+                existing.managed_money_short = gated.managed_money_short
+                existing.other_reportable_long = gated.other_reportable_long
+                existing.other_reportable_short = gated.other_reportable_short
                 existing.quarantine = gated.quarantine
                 updated += 1
             quarantined += int(gated.quarantine)
@@ -674,6 +686,24 @@ class IngestionRepository:
             statement = statement.where(FundDailyMetricRow.report_date <= end_date)
         statement = statement.order_by(FundDailyMetricRow.report_date.asc())
         return [_row_to_fund_metric(row) for row in self.session.exec(statement).all()]
+
+    def list_cot_positions(
+        self,
+        *,
+        commodity: str,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[CotPosition]:
+        statement = select(CotPositionRow).where(
+            CotPositionRow.commodity == commodity,
+            CotPositionRow.quarantine.is_(False),
+        )
+        if start_date is not None:
+            statement = statement.where(CotPositionRow.report_date >= start_date)
+        if end_date is not None:
+            statement = statement.where(CotPositionRow.report_date <= end_date)
+        statement = statement.order_by(CotPositionRow.report_date.asc())
+        return [_row_to_cot_position(row) for row in self.session.exec(statement).all()]
 
     def latest_daily_feature_row(
         self,
@@ -1211,6 +1241,28 @@ def _to_db_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
     return value.astimezone(UTC).replace(tzinfo=None)
+
+
+def _row_to_cot_position(row: CotPositionRow) -> CotPosition:
+    return CotPosition(
+        source=row.source,
+        commodity=row.commodity,
+        market_name=row.market_name,
+        contract_market_code=row.contract_market_code,
+        report_date=row.report_date,
+        knowledge_date=row.knowledge_date,
+        open_interest=row.open_interest,
+        swap_dealer_long=row.swap_dealer_long,
+        swap_dealer_short=row.swap_dealer_short,
+        swap_dealer_spread=row.swap_dealer_spread,
+        producer_merchant_long=row.producer_merchant_long,
+        producer_merchant_short=row.producer_merchant_short,
+        managed_money_long=row.managed_money_long,
+        managed_money_short=row.managed_money_short,
+        other_reportable_long=row.other_reportable_long,
+        other_reportable_short=row.other_reportable_short,
+        quarantine=row.quarantine,
+    )
 
 
 def _row_to_fund_metric(row: FundDailyMetricRow) -> FundDailyMetric:
