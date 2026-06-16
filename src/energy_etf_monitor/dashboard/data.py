@@ -21,7 +21,6 @@ from energy_etf_monitor.records import (
 _METRIC_SOURCE_PRIORITY = {
     "uscf": 3,
     "uscf_api": 3,
-    "invesco": 3,
     "proshares": 3,
     "yahoo_etf": 1,
 }

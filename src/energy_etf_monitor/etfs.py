@@ -46,17 +46,6 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
         product_code="CL",
     ),
     EtfFundConfig(
-        ticker="DBO",
-        commodity="WTI",
-        issuer="Invesco",
-        strategy_type="optimum_yield",
-        strategy_badge="optimum yield",
-        strategy_description=(
-            "WTI strategy fund that can select a futures month to reduce negative roll yield."
-        ),
-        product_code="CL",
-    ),
-    EtfFundConfig(
         ticker="UCO",
         commodity="WTI",
         issuer="ProShares",
@@ -208,26 +197,11 @@ def default_proshares_holding_tickers(
     )
 
 
-def default_invesco_holding_tickers(
-    commodities: tuple[str, ...] = ("WTI", "NATGAS", "RBOB"),
-) -> tuple[str, ...]:
-    allowed = {commodity.upper() for commodity in commodities}
-    return tuple(
-        fund.ticker
-        for fund in ETF_FUND_LIST
-        if fund.commodity in allowed
-        and fund.issuer.upper() == "INVESCO"
-        and fund.include_in_dashboard
-        and fund.include_in_metric_ingest
-    )
-
-
 def default_official_holding_tickers(
     commodities: tuple[str, ...] = ("WTI", "NATGAS", "RBOB"),
 ) -> tuple[str, ...]:
     return (
         default_uscf_holding_tickers(commodities)
-        + default_invesco_holding_tickers(commodities)
         + default_proshares_holding_tickers(commodities)
     )
 

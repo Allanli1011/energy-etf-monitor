@@ -1,6 +1,6 @@
 # 08 - Code audit and optimization backlog
 
-Audit date: 2026-06-15.
+Audit date: 2026-06-16.
 
 ## Verification
 
@@ -22,7 +22,7 @@ New-Item -ItemType Directory -Force tmp | Out-Null
 Results:
 
 - Ruff: `All checks passed`.
-- Pytest: `174 passed`.
+- Pytest: `171 passed`.
 - Coverage report total: `89%`.
 
 Live ETF smoke test:
@@ -34,11 +34,11 @@ energy-etf-monitor ingest-etf-holdings --load
 
 Result against live issuer endpoints:
 
-- `10` official ETF snapshots fetched.
-- `10` daily metric rows parsed.
-- `74` issuer holding rows parsed.
-- `84` rows loaded into a temporary SQLite database.
-- Requested universe: `USO`, `USL`, `UNG`, `UNL`, `UGA`, `DBO`, `UCO`, `SCO`, `BOIL`, `KOLD`.
+- `9` official ETF snapshots fetched.
+- `9` daily metric rows parsed.
+- `69` issuer holding rows parsed.
+- `78` rows loaded into a temporary SQLite database.
+- Requested universe: `USO`, `USL`, `UNG`, `UNL`, `UGA`, `UCO`, `SCO`, `BOIL`, `KOLD`.
 
 Environment note: `uv` was not on PATH in this Windows workspace, so the checked-in `.venv` was
 used for verification. Pytest cache writes were disabled because the local `.pytest_cache` and
@@ -51,9 +51,8 @@ default Windows temp pytest directory were not writable in this sandbox.
 - ETF coverage is registry-driven and no longer crowded into one or two products per commodity.
 - Default ETF holdings ingestion now uses official issuer sources:
   - USCF/ALPS API for `USO`, `USL`, `UNG`, `UNL`, `UGA`.
-  - Invesco DNG API for `DBO`.
   - ProShares official fund pages for `UCO`, `SCO`, `BOIL`, `KOLD`.
-- Raw payloads are saved before parsing, including USCF JSON, Invesco JSON, and ProShares HTML.
+- Raw payloads are saved before parsing, including USCF JSON and ProShares HTML.
 - Dashboard ETF rows prefer official issuer metrics over Yahoo fallback estimates for the same
   ticker/date.
 - Point-in-time discipline remains central: persisted rows keep `report_date` and
@@ -69,22 +68,23 @@ Priority labels are implementation urgency, not business importance.
 |---|---|---|---|
 | P1 | Source freshness | The pipeline can fetch issuer data, but it does not yet persist a structured per-source run status, latest as-of date, or stale-source reason. | Add run reports under `data/processed/run_reports/` and surface freshness in the dashboard. |
 | P1 | Batch validation | Record-level quality gates exist, but there are no batch checks for missing ETF rows, abnormal AUM jumps, extreme holdings weights, or holiday-shifted release calendars. | Add post-ingestion validation before factor-row builds and store reason codes. |
-| P1 | HTTP robustness | Invesco requires a curl path because the DNG edge returns 406 to Python/httpx. Other connectors still lack shared retries/backoff/source-health metrics. | Add a shared fetch wrapper with retries, backoff, status capture, and source-specific client overrides. |
+| P1 | HTTP robustness | Issuer endpoints can still drift or rate-limit; connectors lack shared retries/backoff/source-health metrics. | Add a shared fetch wrapper with retries, backoff, status capture, and source-specific client overrides. |
 | P1 | Repository size | `IngestionRepository` mixes upserts, dashboard read models, feature assembly, and derived metrics. | Split persistence, feature building, dashboard queries, and derived metric services. |
 | P1 | Migrations | Schema evolution is not versioned for SQLite/Postgres. | Add Alembic or a minimal versioned migration table before expanding ETF fields further. |
-| P2 | Live integration suite | The live smoke was manual. CI should not hit free endpoints on every push, but manual integration tests would catch endpoint drift. | Add `pytest -m integration` tests for USCF/ALPS, Invesco DNG, ProShares pages, Yahoo futures, CFTC, and EIA. |
+| P2 | Live integration suite | The live smoke was manual. CI should not hit free endpoints on every push, but manual integration tests would catch endpoint drift. | Add `pytest -m integration` tests for USCF/ALPS, ProShares pages, Yahoo futures, CFTC, and EIA. |
 | P2 | CLI naming | Some legacy WTI/model-era commands remain visible. | Add generic aliases and mark modeling commands as archived/research in help text. |
 | P2 | Dashboard UX | The dashboard lacks a compact source-health banner and stale-data warnings. | Show latest issuer as-of date, source, and fallback/official status per ETF. |
 | P3 | Performance | Per-row upserts are fine for current volumes but will slow if historical backfills grow. | Add bulk upsert only after profiling shows it matters. |
 
 ## Resolved in this update
 
-- Added `InvescoHoldingsConnector` for `DBO` official DNG API data.
+- Removed `DBO` from the ETF registry and deleted the Invesco DNG connector because that edge
+  rejects GitHub-hosted fetches with HTTP 406 even though local fetches can work.
 - Added `ProSharesHoldingsConnector` for `UCO`, `SCO`, `BOIL`, and `KOLD` official fund-page data.
-- Expanded ETF registry source routing with official USCF/Invesco/ProShares groups.
+- Expanded ETF registry source routing with official USCF/ProShares groups.
 - Changed `ingest-etf-holdings --load` to fetch the full official default ETF universe.
 - Changed Yahoo ETF metrics into explicit fallback/cross-check behavior.
-- Updated dashboard source priority to prefer `uscf`, `invesco`, and `proshares` over `yahoo_etf`.
+- Updated dashboard source priority to prefer issuer sources over `yahoo_etf`.
 - Updated README, data-source docs, architecture docs, roadmap, deployment notes, and architecture
   diagram for the non-model official ETF data path.
 

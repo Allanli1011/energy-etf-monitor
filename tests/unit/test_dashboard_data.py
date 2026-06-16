@@ -212,14 +212,6 @@ def test_etf_flow_rows_prefer_official_issuer_metrics_over_yahoo_estimates() -> 
             flow=10_000_000,
             source="uscf",
         ),
-        _metric("DBO", date(2026, 6, 12), aum=200_000_000, flow=2_000_000),
-        _metric(
-            "DBO",
-            date(2026, 6, 12),
-            aum=265_000_000,
-            flow=4_000_000,
-            source="invesco",
-        ),
         _metric("UCO", date(2026, 6, 12), aum=300_000_000, flow=3_000_000),
         _metric(
             "UCO",
@@ -235,9 +227,7 @@ def test_etf_flow_rows_prefer_official_issuer_metrics_over_yahoo_estimates() -> 
     uso = next(row for row in rows if row["ticker"] == "USO")
     assert uso["latest_aum_usd"] == 1_000_000_000
     assert uso["daily_flow_usd"] == 10_000_000
-    dbo = next(row for row in rows if row["ticker"] == "DBO")
-    assert dbo["latest_aum_usd"] == 265_000_000
-    assert dbo["daily_flow_usd"] == 4_000_000
+    assert "DBO" not in {row["ticker"] for row in rows}
     uco = next(row for row in rows if row["ticker"] == "UCO")
     assert uco["latest_aum_usd"] == 399_000_000
     assert uco["daily_flow_usd"] == 5_000_000
@@ -302,10 +292,11 @@ def test_etf_source_health_rows_explain_missing_and_partial_data() -> None:
     assert uso["metric_source"] == "uscf"
     assert uso["contract_rows"] == 1
 
-    dbo = next(row for row in rows if row["ticker"] == "DBO")
-    assert dbo["status"] == "missing"
-    assert dbo["latest_metric_date"] == ""
-    assert "No issuer metric snapshot loaded" in dbo["note"]
+    usl = next(row for row in rows if row["ticker"] == "USL")
+    assert usl["status"] == "missing"
+    assert usl["latest_metric_date"] == ""
+    assert "No issuer metric snapshot loaded" in usl["note"]
+    assert "DBO" not in {row["ticker"] for row in rows}
 
     uco = next(row for row in rows if row["ticker"] == "UCO")
     assert uco["status"] == "partial"

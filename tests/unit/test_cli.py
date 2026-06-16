@@ -327,14 +327,6 @@ def test_ingest_etf_holdings_defaults_to_official_registry_funds(monkeypatch) ->
             fetched.append(("USCF", fund_ticker))
             return FakeSnapshot(fund_ticker)
 
-    class FakeInvescoConnector:
-        def __init__(self, **kwargs) -> None:
-            loaded["invesco_connector_kwargs"] = kwargs
-
-        def fetch_latest(self, *, fund_ticker: str):
-            fetched.append(("Invesco", fund_ticker))
-            return FakeSnapshot(fund_ticker)
-
     class FakeProSharesConnector:
         def __init__(self, **kwargs) -> None:
             loaded["proshares_connector_kwargs"] = kwargs
@@ -363,7 +355,6 @@ def test_ingest_etf_holdings_defaults_to_official_registry_funds(monkeypatch) ->
             return cli.LoadResult(inserted=len(holdings))
 
     monkeypatch.setattr(cli, "UscfHoldingsConnector", FakeUscfConnector)
-    monkeypatch.setattr(cli, "InvescoHoldingsConnector", FakeInvescoConnector)
     monkeypatch.setattr(cli, "ProSharesHoldingsConnector", FakeProSharesConnector)
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
 
@@ -372,7 +363,8 @@ def test_ingest_etf_holdings_defaults_to_official_registry_funds(monkeypatch) ->
     assert result.exit_code == 0
     fetched_tickers = [ticker for _issuer, ticker in fetched]
     assert {"USO", "USL", "UNG", "UNL", "UGA"}.issubset(fetched_tickers)
-    assert ("Invesco", "DBO") in fetched
+    assert "DBO" not in fetched_tickers
+    assert all(issuer != "Invesco" for issuer, _ticker in fetched)
     assert {ticker for issuer, ticker in fetched if issuer == "ProShares"} >= {
         "UCO",
         "SCO",
@@ -1391,10 +1383,10 @@ def test_ingest_etf_metrics_fetches_explicit_yahoo_fallback_funds(monkeypatch) -
 
     result = runner.invoke(
         cli.app,
-        ["ingest-etf-metrics", "--fund", "DBO", "--fund", "UCO", "--load"],
+        ["ingest-etf-metrics", "--fund", "OILK", "--fund", "UCO", "--load"],
     )
 
     assert result.exit_code == 0
-    assert fetched == ["DBO", "UCO"]
-    assert loaded["metrics"] == ["metric-DBO", "metric-UCO"]
+    assert fetched == ["OILK", "UCO"]
+    assert loaded["metrics"] == ["metric-OILK", "metric-UCO"]
     assert "ETF metric snapshots" in result.output

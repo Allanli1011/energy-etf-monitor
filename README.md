@@ -6,8 +6,8 @@ macro context, and market-moving news. Prediction-model training is no longer pa
 product path.
 
 > Current focus: make the ETF data layer real and reliable. USCF commodity pools are fetched from
-> the official USCF/ALPS holdings and dailyprice API, DBO is fetched from Invesco's official DNG
-> API, and ProShares leveraged/inverse products are parsed from the official fund pages. Yahoo
+> the official USCF/ALPS holdings and dailyprice API, and ProShares leveraged/inverse products are
+> parsed from the official fund pages. Yahoo
 > Finance remains an explicit fallback/diagnostic source, not the default ETF data layer.
 
 ## What This Is
@@ -29,7 +29,6 @@ path are data-monitoring first.
 | Area | Primary Source | Notes |
 |---|---|---|
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`; raw payloads saved before parsing. |
-| Invesco ETF NAV, shares, holdings | Invesco DNG API | Official price/listing and holdings JSON for `DBO`; raw payloads saved before parsing. |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | Official page HTML for `UCO`, `SCO`, `BOIL`, `KOLD`; holdings tables include exposure weights and contract months. |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback for funds without an issuer connector or for cross-checks; no default dashboard ETF currently depends on it. |
 | Futures curves | Yahoo/CME-compatible curve provider | Daily curve rows by commodity product code. |
@@ -59,7 +58,7 @@ Fetch official ETF holdings and daily metrics:
 uv run energy-etf-monitor ingest-etf-holdings --load
 ```
 
-This defaults to the official-source products in the registry: `USO`, `USL`, `DBO`, `UCO`, `SCO`,
+This defaults to the official-source products in the registry: `USO`, `USL`, `UCO`, `SCO`,
 `UNG`, `UNL`, `BOIL`, `KOLD`, and `UGA`.
 For a single fund:
 
@@ -70,7 +69,7 @@ uv run energy-etf-monitor ingest-etf-holdings --fund USO --load
 Fetch explicit Yahoo ETF fallback metric context:
 
 ```bash
-uv run energy-etf-monitor ingest-etf-metrics --fund DBO --load
+uv run energy-etf-monitor ingest-etf-metrics --fund OILK --load
 ```
 
 Without `--fund`, this only runs for registry products that do not yet have an issuer connector.
@@ -104,7 +103,7 @@ or run model-health reports.
 
 ETF coverage is registry-driven in `src/energy_etf_monitor/etfs.py`.
 
-- WTI: `USO`, `USL`, `DBO`, `UCO`, `SCO`
+- WTI: `USO`, `USL`, `UCO`, `SCO`
 - Natural gas: `UNG`, `UNL`, `BOIL`, `KOLD`
 - RBOB gasoline: `UGA`
 - Brent: `BNO` is registered but excluded from default dashboard/ingest until the ICE curve side is
@@ -114,7 +113,6 @@ The dashboard separates official issuer data from fallback context:
 
 - USCF funds use official NAV, shares outstanding, creation/redemption (`cr`) and holdings from
   the USCF/ALPS API.
-- `DBO` uses official Invesco DNG API NAV, shares outstanding, and holdings.
 - `UCO`, `SCO`, `BOIL`, and `KOLD` use official ProShares page NAV, net assets, and holdings
   tables.
 - If both sources exist for the same ticker/date, dashboard flow views prefer official issuer
@@ -152,7 +150,6 @@ dashboard should never mix data that was not yet public at the selected decision
 Implemented:
 
 - Official USCF holdings/dailyprice connector with token discovery from USCF's public site.
-- Official Invesco DNG API connector for `DBO`.
 - Official ProShares HTML holdings connector for `UCO`, `SCO`, `BOIL`, and `KOLD`.
 - ETF registry and dashboard views for flow, strategy buckets, and contract-month exposure.
 - Yahoo fallback metric ingestion for explicit cross-checks and products without issuer
@@ -164,7 +161,7 @@ Implemented:
 
 Main remaining work:
 
-- Add live integration smoke tests for USCF/ALPS, Invesco DNG, ProShares pages, Yahoo, CFTC, EIA,
+- Add live integration smoke tests for USCF/ALPS, ProShares pages, Yahoo, CFTC, EIA,
   and Pages rendering.
 - Add batch-level source freshness/sequence checks, especially for ETF AUM jumps and missing
   holdings dates.

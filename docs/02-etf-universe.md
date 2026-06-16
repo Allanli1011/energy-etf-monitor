@@ -43,7 +43,6 @@ is large relative to open interest** — a nonlinear, threshold-dependent "size 
 
 | Ticker | Underlying | Methodology |
 |---|---|---|
-| `DBO` | WTI | DBIQ Optimum Yield — picks the contract month (out to ~13M) maximizing implied roll yield |
 | `OILK` | WTI | "Optimized yield" roll; '40-Act fund (1099, no K-1) |
 
 ## US — broad commodity (energy-heavy)

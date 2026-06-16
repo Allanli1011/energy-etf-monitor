@@ -547,7 +547,7 @@ function render(){
     <h2>Latest market-moving news</h2>
     <table><thead><tr><th>published</th><th>headline (click to open)</th><th>commodity</th><th>catalyst</th><th>importance</th><th>direction</th><th>confidence</th></tr></thead><tbody>${newsRows}</tbody></table>
     <p class="explain">Headlines are pulled from free news feeds (GDELT / RSS) and classified by catalyst, directional lean and confidence. Click a headline to open the source article.</p>
-    <footer>Energy ETF monitor · self-contained factor dashboard · data: issuer ETF holdings (USCF/Invesco/ProShares), Yahoo Finance (futures/fallback), EIA (inventory), FRED (macro), CFTC (positioning), GDELT/RSS (news). No price forecast, no JavaScript trackers, no external assets.</footer>`;
+    <footer>Energy ETF monitor · self-contained factor dashboard · data: issuer ETF holdings (USCF/ProShares), Yahoo Finance (futures/fallback), EIA (inventory), FRED (macro), CFTC (positioning), GDELT/RSS (news). No price forecast, no JavaScript trackers, no external assets.</footer>`;
 
   document.querySelectorAll(".ranges button").forEach(b=>b.addEventListener("click",()=>{
     const m=b.getAttribute("data-m"); RANGE = (m==="null"||m===null)?null:parseInt(m,10);

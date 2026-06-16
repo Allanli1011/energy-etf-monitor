@@ -12,7 +12,6 @@ A free backbone is enough for the non-model monitoring MVP. Paid sources remain 
 | Positioning | CFTC Socrata API | Disaggregated Futures-Only `72hh-3qpy` plus commodity filters | Weekly, T+3 |
 | Futures curve | Free Yahoo/CME-compatible curve provider | CL, NG, RB, HO listed month snapshots where available | Daily |
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings stack via ALPS MarketingAPI | Fetch `api_key.php` from USCF, then call `dailyprice/{ticker}` and `holding/{ticker}/full` with the bearer token | Daily, T+1 |
-| Invesco ETF NAV, shares, holdings | Invesco DNG API | `DBO` price/listing and holdings JSON by CUSIP `46140H403` | Daily, T+1 |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | `UCO`, `SCO`, `BOIL`, `KOLD` HTML pages with price/snapshot blocks and holdings tables | Daily, T+1 |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback/cross-check for products without issuer holdings connectors | Daily |
 | News / sentiment | GDELT 2.0 DOC API, RSS, optional Marketaux | Free headline/event ingestion and rule-based classification | Intraday |
@@ -45,19 +44,6 @@ The public USCF holdings pages load data client-side:
 
 Do not hardcode the bearer token; fetch `api_key.php` on each run. Save raw JSON before parsing so
 format changes can be replayed.
-
-## Invesco DNG API Notes
-
-The Invesco product page exposes official DNG API templates. `DBO` uses CUSIP `46140H403`:
-
-- price/listing metrics:
-  `https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/46140H403/prices?idType=cusip&variationType=priceListing&productType=ETF`
-- holdings:
-  `https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/46140H403/holdings/fund?idType=cusip&variationType=currencyHoldings&productType=ETF`
-
-The price endpoint provides NAV, shares outstanding, and total market value. The holdings endpoint
-provides issuer holding descriptions and percent of total net assets. It does not expose gross
-creation/redemption units, so flow is derived from same-source shares outstanding deltas.
 
 ## ProShares Page Notes
 

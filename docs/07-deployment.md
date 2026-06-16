@@ -17,7 +17,7 @@ The old monthly retrain workflow has been removed.
 `run-nightly` performs:
 
 1. EIA/FRED/CFTC/futures ingestion.
-2. Official ETF holdings and NAV/share ingestion from USCF, Invesco, and ProShares.
+2. Official ETF holdings and NAV/share ingestion from USCF and ProShares.
 3. Fallback Yahoo ETF metric context ingestion where configured.
 4. News ingestion and optional alerts.
 5. Point-in-time factor-row construction.
@@ -65,7 +65,7 @@ used to push the `state` branch.
 | `ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY` + `ENERGY_ETF_MONITOR_NEWS_CLASSIFIER=llm` | Enable optional LLM classifier |
 | `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL` + `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_KIND` | Post high-impact news alerts to Slack or ntfy |
 
-Without optional secrets the pipeline still runs on EIA/FRED/CFTC/USCF/Invesco/ProShares/Yahoo
+Without optional secrets the pipeline still runs on EIA/FRED/CFTC/USCF/ProShares/Yahoo
 fallback/GDELT/RSS and the rule-based classifier.
 
 ## Manual Backfill
@@ -88,6 +88,7 @@ backfills, or manual dispatch. It restores SQLite state first, then runs:
 
 ```bash
 uv run energy-etf-monitor init-db
+uv run energy-etf-monitor ingest-etf-holdings --load
 uv run energy-etf-monitor render-report --output-dir site
 ```
 

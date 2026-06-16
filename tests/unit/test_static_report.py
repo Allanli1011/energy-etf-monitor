@@ -116,7 +116,8 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
     assert "ETF source health" in page
     assert "No issuer metric snapshot loaded" in page
     assert "ETF roll watch" in page and "USO" in page  # roll strategy + alert
-    assert "USL" in page and "DBO" in page and "UCO" in page  # richer WTI universe
+    assert "USL" in page and "UCO" in page and "SCO" in page  # richer WTI universe
+    assert "DBO" not in page
     assert "ETF exposure by contract month" in page
     assert "2026-07" in page and "700000000" in page
     assert "Time range" in page  # global range selector

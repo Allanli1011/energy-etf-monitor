@@ -9,7 +9,7 @@ decision-useful dashboard views.
 | Phase | Focus | Deliverable |
 |---|---|---|
 | 0 | Foundation | SQLite/Postgres storage, raw payload archive, EIA/FRED/CFTC/futures connectors, quality gate. |
-| 1 | Official ETF data | USCF, Invesco, and ProShares official ETF connectors for the default dashboard universe; derive flow and contract-month exposure. |
+| 1 | Official ETF data | USCF and ProShares official ETF connectors for the default dashboard universe; derive flow and contract-month exposure. |
 | 2 | Monitoring factors | Point-in-time factor rows for curve, inventory, COT, macro, ETF crowding, roll window, and news. |
 | 3 | Dashboard | Streamlit/static report with ETF Flow & Roll Pressure, curve, COT, inventory, and news panels. |
 | 4 | Automation | GitHub Actions nightly monitoring, manual data backfill, SQLite state branch, Pages deployment, failure alerts. |
@@ -21,13 +21,12 @@ decision-useful dashboard views.
 Implemented:
 
 - USCF official holdings/dailyprice API ingestion through `UscfHoldingsConnector`.
-- Invesco official DNG API ingestion for `DBO` through `InvescoHoldingsConnector`.
 - ProShares official HTML holdings ingestion for `UCO`, `SCO`, `BOIL`, and `KOLD` through
   `ProSharesHoldingsConnector`.
 - Legacy `fetch-uso-pcf --url ...` remains available for explicit CSV replay, while
   `fetch-uso-pcf` without `--url` now uses the official USCF API.
 - `ingest-etf-holdings --load` fetches official snapshots for the default ETF universe:
-  `USO`, `USL`, `DBO`, `UCO`, `SCO`, `UNG`, `UNL`, `BOIL`, `KOLD`, `UGA`.
+  `USO`, `USL`, `UCO`, `SCO`, `UNG`, `UNL`, `BOIL`, `KOLD`, `UGA`.
 - `ingest-etf-metrics --fund ... --load` remains available for explicit Yahoo fallback or
   cross-checks; no default dashboard ETF currently depends on it.
 - Dashboard ETF rows prefer official issuer metrics over Yahoo estimates when both are present
@@ -42,7 +41,7 @@ Implemented:
 Near-term:
 
 1. Add live integration smoke tests for USCF/ALPS token discovery, `dailyprice`, and
-   `holding/{ticker}/full`, Invesco DNG prices/holdings, and ProShares holdings pages.
+   `holding/{ticker}/full`, and ProShares holdings pages.
 2. Add source freshness checks: latest holdings date, latest dailyprice/NAV date, missing ETF rows,
    and stale fallback metrics.
 3. Add batch-level ETF validation: large AUM changes, large flow/AUM moves, missing holdings, and
@@ -52,7 +51,6 @@ Near-term:
 Issuer coverage:
 
 - USCF: `USO`, `USL`, `UNG`, `UNL`, `UGA`.
-- Invesco: `DBO`.
 - ProShares: `UCO`, `SCO`, `BOIL`, `KOLD`.
 - Brent: keep `BNO` registered but excluded from default views until an ICE curve source is
   available.
@@ -63,7 +61,7 @@ Historical ETF backfill:
   require either archived issuer files, SEC filings, paid data, or saved daily raw payloads going
   forward.
 - Going forward, the nightly job will accumulate official raw payloads under
-  `data/raw/uscf_api/`, `data/raw/invesco_api/`, and `data/raw/proshares_html/`, making the local
+  `data/raw/uscf_api/` and `data/raw/proshares_html/`, making the local
   database and raw archive the durable history.
 
 ## Definition Of Done For The Non-Model MVP

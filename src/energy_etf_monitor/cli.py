@@ -19,7 +19,6 @@ from energy_etf_monitor.ingestion.cme import CmeSettlementCurveProvider
 from energy_etf_monitor.ingestion.eia import EiaSeriesConnector
 from energy_etf_monitor.ingestion.fred import FredSeriesConnector
 from energy_etf_monitor.ingestion.gdelt import GdeltDocConnector
-from energy_etf_monitor.ingestion.invesco import InvescoHoldingsConnector
 from energy_etf_monitor.ingestion.marketaux import MarketauxConnector
 from energy_etf_monitor.ingestion.proshares import ProSharesHoldingsConnector
 from energy_etf_monitor.ingestion.rss import DEFAULT_FEEDS, RssNewsConnector
@@ -582,7 +581,6 @@ def _ingest_official_etf_holdings(settings: Settings) -> None:
 def _fetch_official_etf_snapshots(settings: Settings, tickers: list[str]):
     connectors = {
         "USCF": UscfHoldingsConnector(raw_root_dir=settings.raw_data_dir),
-        "INVESCO": InvescoHoldingsConnector(raw_root_dir=settings.raw_data_dir),
         "PROSHARES": ProSharesHoldingsConnector(raw_root_dir=settings.raw_data_dir),
     }
     snapshots = []

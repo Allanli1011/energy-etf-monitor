@@ -57,7 +57,7 @@ monitoring view should not silently use data that was not public yet at the sele
 
 A data-first monitoring pipeline and dashboard:
 
-- official ETF dailyprice/NAV/share and holdings ingestion from USCF, Invesco, and ProShares;
+- official ETF dailyprice/NAV/share and holdings ingestion from USCF and ProShares;
 - fallback Yahoo ETF metric ingestion only for explicit cross-checks or products without issuer
   connectors;
 - futures curves, inventory, macro, COT, and news ingestion;

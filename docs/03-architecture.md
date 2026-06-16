@@ -26,9 +26,6 @@ free and issuer data sources
   - `dailyprice/{ticker}` provides NAV, shares outstanding, total NAV, and
     creation/redemption shares.
   - `holding/{ticker}/full` provides issuer holdings, weights, market value, and futures symbols.
-- Invesco `DBO` data is fetched from the official DNG API:
-  - `prices` provides NAV, shares outstanding, total market value, and bid/ask context.
-  - `holdings/fund` provides issuer holdings and percent of net assets.
 - ProShares `UCO`, `SCO`, `BOIL`, and `KOLD` data is parsed from the official fund pages:
   - the price/snapshot blocks provide NAV and net assets.
   - the holdings table provides exposure weights, descriptions, contracts, and notional values.
@@ -53,7 +50,7 @@ whether a product should appear in dashboard or ingest defaults.
 
 Current default official-holdings coverage:
 
-- WTI: `USO`, `USL`, `DBO`, `UCO`, `SCO`
+- WTI: `USO`, `USL`, `UCO`, `SCO`
 - Natural gas: `UNG`, `UNL`, `BOIL`, `KOLD`
 - RBOB gasoline: `UGA`
 
