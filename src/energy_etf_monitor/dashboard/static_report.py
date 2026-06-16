@@ -15,6 +15,7 @@ from energy_etf_monitor.dashboard.data import (
     etf_exposure_rows,
     etf_flow_chart,
     etf_flow_rows,
+    etf_source_health_rows,
     etf_strategy_summary_rows,
     feature_time_series,
     news_panel_rows,
@@ -215,6 +216,12 @@ def render_dashboard_html(
             "flow": etf_flow_chart(fund_metrics, funds=etf_funds),
             "rows": etf_flow_rows(fund_metrics, funds=etf_funds),
             "summary": etf_strategy_summary_rows(fund_metrics, funds=etf_funds),
+            "health": etf_source_health_rows(
+                fund_metrics,
+                holdings=fund_holdings,
+                funds=etf_funds,
+                as_of=as_of.date(),
+            ),
             "exposure": etf_exposure_rows(
                 fund_holdings,
                 metrics=fund_metrics,
@@ -332,6 +339,8 @@ padding:6px 9px;font-size:12px;color:#e6edf3;box-shadow:0 4px 14px rgba(0,0,0,.4
 table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #1c232d;vertical-align:top}
 td.num{text-align:right;font-variant-numeric:tabular-nums}
+.status{font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.04em}
+.status-ok{color:#3fb950}.status-partial{color:#ffd54f}.status-stale{color:#ff8a65}.status-missing{color:#f85149}
 .dir-Bullish{color:#3fb950}.dir-Bearish{color:#f85149}.dir-Mixed,.dir-Neutral,.dir-Unknown{color:#9aa7b4}
 footer{margin-top:34px;color:#6b7682;font-size:12px;border-top:1px solid #1c232d;padding-top:12px}
 </style></head><body><div class="wrap" id="root"></div>
@@ -476,6 +485,14 @@ function render(){
     <div class="metric"><div class="k">front-month flow</div><div class="v">${fmt(frontFlow)}</div></div>
     <div class="metric"><div class="k">leveraged flow</div><div class="v">${fmt(leveragedFlow)}</div></div>
   </div>`;
+  const healthRows = (etf.health||[]).length ? etf.health.map(r=>`<tr>`
+      +`<td>${esc(r.ticker)}</td><td>${esc(r.issuer)}</td>`
+      +`<td class="status status-${esc(r.status)}">${esc(r.status)}</td>`
+      +`<td>${esc(r.metric_source||"")}</td><td>${esc(r.latest_metric_date||"")}</td>`
+      +`<td>${esc(r.latest_holding_date||"")}</td>`
+      +`<td class="num">${esc(r.holding_rows||0)}</td><td class="num">${esc(r.contract_rows||0)}</td>`
+      +`<td>${esc(r.note||"")}</td></tr>`).join("")
+      : `<tr><td colspan="9" class="empty">No ETF source health rows yet.</td></tr>`;
   const etfRows = (etf.rows||[]).length ? etf.rows.map(r=>`<tr>`
       +`<td>${esc(r.ticker)}</td><td>${esc(r.issuer)}</td><td>${esc(r.strategy)}</td>`
       +`<td class="num">${esc(r.leverage)}</td><td>${esc(r.latest_date||"")}</td>`
@@ -514,6 +531,8 @@ function render(){
     <p class="explain">USCF single-commodity funds publish their roll methodology; this is the standard early-month window. The alert is a heads-up that fund roll flows are imminent — it is informational, not a trade signal.</p>
     <h2>ETF flow & roll pressure</h2>
     ${metricCards}
+    <h2>ETF source health</h2>
+    <table><thead><tr><th>fund</th><th>issuer</th><th>status</th><th>metric source</th><th>metric date</th><th>holdings date</th><th>holding rows</th><th>contract rows</th><th>note</th></tr></thead><tbody>${healthRows}</tbody></table>
     <table><thead><tr><th>fund</th><th>issuer</th><th>strategy</th><th>lev</th><th>date</th><th>AUM</th><th>daily flow</th><th>flow/AUM</th><th>5d flow</th><th>model</th></tr></thead><tbody>${etfRows}</tbody></table>
     <table><thead><tr><th>strategy</th><th>funds</th><th>count</th><th>AUM</th><th>daily flow</th><th>5d flow</th></tr></thead><tbody>${summaryRows}</tbody></table>
     <h2>ETF exposure by contract month</h2>

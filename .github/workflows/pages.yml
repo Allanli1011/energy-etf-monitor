@@ -42,6 +42,7 @@ jobs:
       - name: Build static site
         run: |
           uv run energy-etf-monitor init-db
+          uv run energy-etf-monitor ingest-etf-holdings --load
           uv run energy-etf-monitor render-report --output-dir site
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

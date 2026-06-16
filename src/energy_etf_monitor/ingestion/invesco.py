@@ -3,8 +3,10 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -140,9 +142,12 @@ class InvescoHoldingsConnector:
         price_url = self._price_url(product)
         holdings_url = self._holdings_url(product)
         if self.client is None:
-            price = _get_json_with_curl(price_url, referer=product["page_url"])
-            holdings = _get_json_with_curl(holdings_url, referer=product["page_url"])
+            price, holdings = _get_json_sequence_with_curl(
+                [price_url, holdings_url],
+                referer=product["page_url"],
+            )
         else:
+            _warm_invesco_client(self.client, product["page_url"])
             price = self._get_json(self.client, price_url, referer=product["page_url"])
             holdings = self._get_json(self.client, holdings_url, referer=product["page_url"])
 
@@ -176,12 +181,7 @@ class InvescoHoldingsConnector:
     def _get_json(client: httpx.Client, url: str, *, referer: str) -> dict[str, Any]:
         response = client.get(
             url,
-            headers={
-                "Accept": "application/json,text/plain,*/*",
-                "Origin": "https://www.invesco.com",
-                "Referer": referer,
-                "User-Agent": _BROWSER_USER_AGENT,
-            },
+            headers=_api_headers(referer),
         )
         try:
             response.raise_for_status()
@@ -195,38 +195,161 @@ class InvescoHoldingsConnector:
         return payload
 
 
+def _warm_invesco_client(client: httpx.Client, referer: str) -> None:
+    try:
+        client.get(referer, headers=_page_headers(), follow_redirects=True)
+    except Exception:
+        return
+
+
 def _get_json_with_curl(url: str, *, referer: str) -> dict[str, Any]:
+    return _get_json_sequence_with_curl([url], referer=referer)[0]
+
+
+def _get_json_sequence_with_curl(urls: list[str], *, referer: str) -> list[dict[str, Any]]:
     curl = shutil.which("curl")
     if curl is None:
         raise ValueError("Invesco DNG API returned 406 and curl is not available")
-    result = subprocess.run(
-        [
-            curl,
-            "-L",
-            "-sS",
-            "-f",
-            "-A",
-            _BROWSER_USER_AGENT,
-            "-H",
-            "Accept: application/json,text/plain,*/*",
-            "-H",
-            "Origin: https://www.invesco.com",
-            "-H",
-            f"Referer: {referer}",
-            url,
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-        timeout=30,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        raise ValueError(f"Invesco DNG API curl fallback failed: {detail}")
-    payload = json.loads(result.stdout)
-    if not isinstance(payload, dict):
-        raise ValueError("Invesco DNG API curl fallback returned a non-object response")
-    return payload
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cookie_path = str(Path(tmpdir) / "invesco_cookies.txt")
+        warm_result = subprocess.run(
+            _curl_page_command(curl, referer, cookie_path),
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+            text=True,
+            timeout=30,
+        )
+        warm_error = ""
+        if warm_result.returncode != 0:
+            warm_error = (warm_result.stderr or warm_result.stdout).strip()
+        return [
+            _curl_json(
+                url,
+                referer=referer,
+                curl=curl,
+                cookie_path=cookie_path,
+                warm_error=warm_error,
+            )
+            for url in urls
+        ]
+
+
+def _curl_json(
+    url: str,
+    *,
+    referer: str,
+    curl: str,
+    cookie_path: str,
+    warm_error: str,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    for command in (
+        _curl_api_command(curl, url, referer=referer, cookie_path=cookie_path, use_cookie=True),
+        _curl_api_command(curl, url, referer=referer, cookie_path=cookie_path, use_cookie=False),
+    ):
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            errors.append((result.stderr or result.stdout).strip())
+            continue
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            errors.append(f"non-JSON response: {exc}")
+            continue
+        if not isinstance(payload, dict):
+            raise ValueError("Invesco DNG API curl fallback returned a non-object response")
+        return payload
+    if warm_error:
+        errors.insert(0, f"product page warmup failed: {warm_error}")
+    detail = " | ".join(error for error in errors if error) or "unknown curl failure"
+    raise ValueError(f"Invesco DNG API curl fallback failed: {detail}")
+
+
+def _page_headers() -> dict[str, str]:
+    return {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": _BROWSER_USER_AGENT,
+    }
+
+
+def _api_headers(referer: str) -> dict[str, str]:
+    return {
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://www.invesco.com",
+        "Referer": referer,
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-site",
+        "User-Agent": _BROWSER_USER_AGENT,
+    }
+
+
+def _curl_page_command(curl: str, referer: str, cookie_path: str) -> list[str]:
+    return [
+        curl,
+        "-L",
+        "-sS",
+        "--compressed",
+        "-A",
+        _BROWSER_USER_AGENT,
+        "-H",
+        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "-H",
+        "Accept-Language: en-US,en;q=0.9",
+        "-c",
+        cookie_path,
+        referer,
+    ]
+
+
+def _curl_api_command(
+    curl: str,
+    url: str,
+    *,
+    referer: str,
+    cookie_path: str,
+    use_cookie: bool,
+) -> list[str]:
+    command = [
+        curl,
+        "-L",
+        "-sS",
+        "-f",
+        "--compressed",
+        "-A",
+        _BROWSER_USER_AGENT,
+        "-H",
+        "Accept: application/json,text/plain,*/*",
+        "-H",
+        "Accept-Language: en-US,en;q=0.9",
+        "-H",
+        "Origin: https://www.invesco.com",
+        "-H",
+        f"Referer: {referer}",
+        "-H",
+        "Sec-Fetch-Dest: empty",
+        "-H",
+        "Sec-Fetch-Mode: cors",
+        "-H",
+        "Sec-Fetch-Site: same-site",
+    ]
+    if use_cookie:
+        command.extend(["-b", cookie_path, "-c", cookie_path])
+    command.append(url)
+    return command
 
 
 def _parse_holding_row(

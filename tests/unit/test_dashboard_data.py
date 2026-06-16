@@ -5,6 +5,7 @@ from energy_etf_monitor.dashboard.data import (
     etf_exposure_rows,
     etf_flow_chart,
     etf_flow_rows,
+    etf_source_health_rows,
     etf_strategy_summary_rows,
     feature_time_series,
     latest_call,
@@ -156,9 +157,10 @@ def _holding(
     quantity: float,
     market_value: float | None = None,
     percent_nav: float | None = None,
+    source: str = "uscf",
 ) -> FundHolding:
     return FundHolding(
-        source="uscf",
+        source=source,
         fund_ticker=ticker,
         holding_key=f"{ticker}-{contract_month.isoformat()}",
         holding_name=f"{ticker} CL {contract_month:%b%y}",
@@ -275,6 +277,39 @@ def test_etf_exposure_rows_show_latest_contract_month_distribution() -> None:
     assert rows[0]["quantity"] == 10_000
     assert rows[0]["percent_nav"] == 70.0
     assert rows[1]["percent_nav"] == 12.5
+
+
+def test_etf_source_health_rows_explain_missing_and_partial_data() -> None:
+    funds = etf_funds_for_commodity("WTI")
+    metrics = [
+        _metric("USO", date(2026, 6, 15), aum=1_000_000_000, flow=1_000_000, source="uscf"),
+        _metric("UCO", date(2026, 6, 15), aum=300_000_000, flow=None, source="proshares"),
+    ]
+    holdings = [
+        _holding("USO", date(2026, 7, 1), quantity=10_000, source="uscf"),
+        _holding("UCO", date(2026, 9, 1), quantity=400, source="proshares"),
+    ]
+
+    rows = etf_source_health_rows(
+        metrics,
+        holdings=holdings,
+        funds=funds,
+        as_of=date(2026, 6, 16),
+    )
+
+    uso = next(row for row in rows if row["ticker"] == "USO")
+    assert uso["status"] == "ok"
+    assert uso["metric_source"] == "uscf"
+    assert uso["contract_rows"] == 1
+
+    dbo = next(row for row in rows if row["ticker"] == "DBO")
+    assert dbo["status"] == "missing"
+    assert dbo["latest_metric_date"] == ""
+    assert "No issuer metric snapshot loaded" in dbo["note"]
+
+    uco = next(row for row in rows if row["ticker"] == "UCO")
+    assert uco["status"] == "partial"
+    assert "Creation/redemption flow not directly available" in uco["note"]
 
 
 def test_etf_flow_chart_aligns_multiple_funds_by_date() -> None:

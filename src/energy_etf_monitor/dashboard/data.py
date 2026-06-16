@@ -243,6 +243,57 @@ def etf_exposure_rows(
     return rows
 
 
+def etf_source_health_rows(
+    metrics: Sequence[FundDailyMetric],
+    *,
+    holdings: Sequence[FundHolding],
+    funds: Sequence[EtfFundConfig],
+    as_of: date | None = None,
+) -> list[dict[str, object]]:
+    """Per-fund ETF data coverage and caveats for the dashboard."""
+
+    fund_tickers = {fund.ticker for fund in funds}
+    by_ticker = _metrics_by_ticker(metrics)
+    latest_holding_dates = _latest_holding_dates(holdings, fund_tickers)
+    latest_holdings = _latest_holdings_by_ticker(holdings, latest_holding_dates)
+    rows: list[dict[str, object]] = []
+    for fund in funds:
+        ticker = fund.ticker
+        fund_metrics = by_ticker.get(ticker, [])
+        latest_metric = fund_metrics[-1] if fund_metrics else None
+        holding_date = latest_holding_dates.get(ticker)
+        holding_rows = latest_holdings.get(ticker, [])
+        contract_rows = sum(1 for holding in holding_rows if holding.contract_month is not None)
+        notes = _source_health_notes(
+            metric=latest_metric,
+            holding_date=holding_date,
+            holding_count=len(holding_rows),
+            contract_rows=contract_rows,
+            as_of=as_of,
+        )
+        rows.append(
+            {
+                "ticker": ticker,
+                "issuer": fund.issuer,
+                "status": _source_health_status(
+                    metric=latest_metric,
+                    holding_date=holding_date,
+                    contract_rows=contract_rows,
+                    as_of=as_of,
+                ),
+                "metric_source": latest_metric.source if latest_metric is not None else "",
+                "latest_metric_date": (
+                    latest_metric.report_date.isoformat() if latest_metric is not None else ""
+                ),
+                "latest_holding_date": holding_date.isoformat() if holding_date else "",
+                "holding_rows": len(holding_rows),
+                "contract_rows": contract_rows,
+                "note": "; ".join(notes) if notes else "Issuer metric and holdings loaded",
+            }
+        )
+    return rows
+
+
 def etf_flow_chart(
     metrics: Sequence[FundDailyMetric],
     *,
@@ -321,6 +372,69 @@ def _latest_holding_dates(
         if previous is None or holding.report_date > previous:
             latest[holding.fund_ticker] = holding.report_date
     return latest
+
+
+def _latest_holdings_by_ticker(
+    holdings: Sequence[FundHolding],
+    latest_dates: dict[str, date],
+) -> dict[str, list[FundHolding]]:
+    by_ticker: dict[str, list[FundHolding]] = {}
+    for holding in holdings:
+        if latest_dates.get(holding.fund_ticker) == holding.report_date:
+            by_ticker.setdefault(holding.fund_ticker, []).append(holding)
+    return by_ticker
+
+
+def _source_health_status(
+    *,
+    metric: FundDailyMetric | None,
+    holding_date: date | None,
+    contract_rows: int,
+    as_of: date | None,
+) -> str:
+    if metric is None and holding_date is None:
+        return "missing"
+    if _is_stale(metric.report_date if metric is not None else holding_date, as_of):
+        return "stale"
+    if metric is None or holding_date is None or contract_rows == 0:
+        return "partial"
+    if metric.source == "yahoo_etf" or metric.implied_flow_usd is None:
+        return "partial"
+    return "ok"
+
+
+def _source_health_notes(
+    *,
+    metric: FundDailyMetric | None,
+    holding_date: date | None,
+    holding_count: int,
+    contract_rows: int,
+    as_of: date | None,
+) -> list[str]:
+    notes: list[str] = []
+    if metric is None:
+        notes.append("No issuer metric snapshot loaded")
+    elif metric.source == "yahoo_etf":
+        notes.append("Using Yahoo fallback metric, not issuer data")
+    if holding_date is None:
+        notes.append("No issuer holdings/PCF rows loaded")
+    elif contract_rows == 0:
+        notes.append("Holdings loaded but no contract-month exposure parsed")
+    elif holding_count != contract_rows:
+        notes.append("Holdings include cash/swap/collateral rows outside contract-month table")
+    if metric is not None and metric.implied_flow_usd is None:
+        notes.append("Creation/redemption flow not directly available")
+    latest_date = metric.report_date if metric is not None else holding_date
+    if _is_stale(latest_date, as_of):
+        lag = (as_of - latest_date).days if as_of and latest_date else 0
+        notes.append(f"Latest issuer date is {lag} calendar days behind snapshot")
+    return notes
+
+
+def _is_stale(latest_date: date | None, as_of: date | None) -> bool:
+    if latest_date is None or as_of is None:
+        return False
+    return (as_of - latest_date).days > 3
 
 
 def _empty_etf_flow_row(fund: EtfFundConfig) -> dict[str, object]:

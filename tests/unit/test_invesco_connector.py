@@ -110,12 +110,18 @@ def test_invesco_connector_fetches_api_payloads_and_saves_raw(tmp_path) -> None:
 
 
 def test_invesco_connector_falls_back_to_curl_for_406(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(406, request=request)
 
     def fake_run(cmd, **kwargs):
+        commands.append(cmd)
         assert cmd[0] == "curl"
-        assert "Accept-Language" not in cmd
+        if cmd[-1] == "https://example.test/dbo":
+            return SimpleNamespace(returncode=0, stdout="<html></html>", stderr="")
+        assert any(header == "Accept-Language: en-US,en;q=0.9" for header in cmd)
+        assert "-b" in cmd and "-c" in cmd
         payload = SAMPLE_INVESCO_PRICE if "/prices?" in cmd[-1] else SAMPLE_INVESCO_HOLDINGS
         return SimpleNamespace(returncode=0, stdout=invesco.json.dumps(payload), stderr="")
 
@@ -140,6 +146,7 @@ def test_invesco_connector_falls_back_to_curl_for_406(tmp_path, monkeypatch) -> 
 
     assert snapshot.metric.total_net_assets == 265_832_822.82
     assert len(snapshot.holdings) == 3
+    assert any(cmd[-1] == "https://example.test/dbo" for cmd in commands)
 
 
 def test_invesco_connector_uses_curl_without_injected_client(tmp_path, monkeypatch) -> None:
@@ -147,6 +154,8 @@ def test_invesco_connector_uses_curl_without_injected_client(tmp_path, monkeypat
 
     def fake_run(cmd, **kwargs):
         seen_urls.append(cmd[-1])
+        if cmd[-1].startswith("https://www.invesco.com/"):
+            return SimpleNamespace(returncode=0, stdout="<html></html>", stderr="")
         payload = SAMPLE_INVESCO_PRICE if "/prices?" in cmd[-1] else SAMPLE_INVESCO_HOLDINGS
         return SimpleNamespace(returncode=0, stdout=invesco.json.dumps(payload), stderr="")
 
@@ -158,5 +167,6 @@ def test_invesco_connector_uses_curl_without_injected_client(tmp_path, monkeypat
     snapshot = connector.fetch_latest(fund_ticker="DBO")
 
     assert snapshot.metric.fund_ticker == "DBO"
+    assert any(url.startswith("https://www.invesco.com/") for url in seen_urls)
     assert any("/prices?" in url for url in seen_urls)
     assert any("/holdings/fund?" in url for url in seen_urls)

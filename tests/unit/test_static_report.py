@@ -113,6 +113,8 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
     assert "Energy price factors" in page
     assert "Not a price forecast" in page
     assert "ETF flow & roll pressure" in page
+    assert "ETF source health" in page
+    assert "No issuer metric snapshot loaded" in page
     assert "ETF roll watch" in page and "USO" in page  # roll strategy + alert
     assert "USL" in page and "DBO" in page and "UCO" in page  # richer WTI universe
     assert "ETF exposure by contract month" in page
