@@ -69,12 +69,19 @@ Counterparties seen for the swap legs include Goldman Sachs, Societe Generale. K
 
 | Product | Tracks | Structure |
 |---|---|---|
-| WisdomTree WTI / Brent / Natural Gas ETCs (+ 2x variants) | Bloomberg single-commodity subindices (e.g. `BCLMT4T` WTI, `BCOMNG4T` NatGas) | Fully-collateralised swap-based ETC |
+| WisdomTree Brent Crude Oil (`BRNT`) | Brent crude futures total-return exposure | Fully-collateralised swap-based ETC |
+| WisdomTree Brent Crude Oil 1x Daily Short (`SBRT`) | -1x daily Brent crude futures exposure | Fully-collateralised swap-based ETP |
+| WisdomTree Brent Crude Oil 2x Daily Leveraged (`LBRT` / `2BRT`) | +2x daily Brent crude futures exposure | Fully-collateralised swap-based ETP |
+| WisdomTree Brent Crude Oil 3x Daily Leveraged (`3BRL`) | +3x daily Brent crude futures exposure | Fully-collateralised swap-based ETP |
+| WisdomTree Brent Crude Oil 3x Daily Short (`3BRS`) | -3x daily Brent crude futures exposure | Fully-collateralised swap-based ETP |
+| WisdomTree WTI / Natural Gas ETCs (+ leveraged / inverse variants) | Bloomberg single-commodity subindices (e.g. `BCLMT4T` WTI, `BCOMNG4T` NatGas) | Fully-collateralised swap-based ETC |
 | iShares Diversified Commodity Swap UCITS ETF (+ Enhanced Roll Yield) | Bloomberg Commodity (Total Return) Index | Synthetic swap |
 | L&G All Commodities UCITS ETF | Bloomberg Commodity Index | Synthetic swap |
 | Invesco Bloomberg Commodity UCITS ETF | Bloomberg Commodity Index | Synthetic swap |
 
 Roll schedules for these live in the **Bloomberg index methodology** documents, not the ETC itself.
+They are visible on the Brent dashboard as ETF/ETP flow and AUM context; unlike USCF commodity
+pools, their underlying futures/swap legs are not transparent daily PCF rows.
 
 ## Chemicals — confirmed: no Western ETF wrapper exists
 

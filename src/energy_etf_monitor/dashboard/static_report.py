@@ -21,7 +21,7 @@ from energy_etf_monitor.dashboard.data import (
     feature_time_series,
     news_panel_rows,
 )
-from energy_etf_monitor.etfs import etf_funds_for_commodity
+from energy_etf_monitor.etfs import dashboard_commodities, etf_funds_for_commodity
 from energy_etf_monitor.records import (
     CotPosition,
     DailyFeatureRow,
@@ -169,6 +169,16 @@ def _flow_section(commodity: str, fund_metrics: Sequence[FundDailyMetric]) -> di
     }
 
 
+def _coverage_note(commodity: str) -> str:
+    if commodity.upper() in COMMODITIES:
+        return ""
+    return (
+        "ETF/ETP analysis only: core futures curve, inventory, and COT factor rows are not "
+        "enabled for this commodity yet. Brent ICE curve source coverage is pending, so "
+        "issuer/fallback ETF rows are separated from unavailable futures-market factor data."
+    )
+
+
 def render_dashboard_html(
     *,
     commodity: str,
@@ -178,10 +188,11 @@ def render_dashboard_html(
     fund_metrics: Sequence[FundDailyMetric] = (),
     fund_holdings: Sequence[FundHolding] = (),
     cot_positions: Sequence[CotPosition] = (),
-    commodities: Sequence[str] = tuple(COMMODITIES),
+    commodities: Sequence[str] | None = None,
 ) -> str:
     """Render one commodity's factor dashboard into a self-contained interactive HTML document."""
 
+    commodity = commodity.upper()
     etf_funds = etf_funds_for_commodity(commodity)
     news_rows = [
         {
@@ -194,7 +205,8 @@ def render_dashboard_html(
     ]
     data = {
         "commodity": commodity,
-        "commodities": list(commodities),
+        "commodities": list(commodities or dashboard_commodities(tuple(COMMODITIES))),
+        "coverage_note": _coverage_note(commodity),
         "as_of": as_of.strftime("%Y-%m-%d %H:%M"),
         "funds": [
             {
@@ -235,7 +247,13 @@ def render_dashboard_html(
     return _PAGE.replace("/*__DASH__*/", _script_safe_json(data))
 
 
-def build_commodity_html(commodity: str, settings: Settings, as_of: datetime) -> str:
+def build_commodity_html(
+    commodity: str,
+    settings: Settings,
+    as_of: datetime,
+    *,
+    commodities: Sequence[str] | None = None,
+) -> str:
     etf_funds = etf_funds_for_commodity(commodity)
     tickers = [fund.ticker for fund in etf_funds]
     with IngestionRepository.from_settings(settings) as repository:
@@ -255,7 +273,7 @@ def build_commodity_html(commodity: str, settings: Settings, as_of: datetime) ->
     return render_dashboard_html(
         commodity=commodity, feature_rows=feature_rows, news=news,
         as_of=as_of, fund_metrics=fund_metrics, fund_holdings=fund_holdings,
-        cot_positions=cot_positions,
+        cot_positions=cot_positions, commodities=commodities,
     )
 
 
@@ -265,9 +283,10 @@ def write_static_site(output_dir, *, settings: Settings, as_of: datetime) -> lis
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     written: list = []
-    default = next(iter(COMMODITIES))
-    for commodity in COMMODITIES:
-        page = build_commodity_html(commodity, settings, as_of)
+    commodities = dashboard_commodities(tuple(COMMODITIES))
+    default = commodities[0]
+    for commodity in commodities:
+        page = build_commodity_html(commodity, settings, as_of, commodities=commodities)
         path = output_dir / f"{commodity.lower()}.html"
         path.write_text(page, encoding="utf-8")
         written.append(path)
@@ -543,6 +562,7 @@ function cssEsc(s){return s.replace(/"/g,'\\"');}
 function render(){
   const d=DASH;
   const nav = d.commodities.map(c=>`<a href="${c.toLowerCase()}.html" class="${c===d.commodity?'on':''}">${esc(c)}</a>`).join(" ");
+  const coverage = d.coverage_note ? `<div class="alert soon">${esc(d.coverage_note)}</div>` : "";
   const funds = d.funds.map(f=>`<div class="fund"><span class="tk">${esc(f.ticker)}</span>`
       +`<span class="tag">${esc(f.badge)}</span><div class="explain" style="margin-top:6px">${esc(f.strategy)}</div></div>`).join("");
   const roll = d.roll;
@@ -598,6 +618,7 @@ function render(){
   document.getElementById("root").innerHTML = `
     <h1>Energy price factors — ${esc(d.commodity)}</h1>
     <p class="caption">A monitoring dashboard for the drivers of energy prices (futures, ETF roll mechanics, positioning, inventories, news). Not a price forecast. Snapshot ${esc(d.as_of)} UTC.</p>
+    ${coverage}
     <nav>${nav}</nav>
     <h2>ETF roll watch</h2>
     ${alert}

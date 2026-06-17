@@ -25,7 +25,7 @@ from energy_etf_monitor.dashboard.data import (
     feature_time_series,
     news_panel_rows,
 )
-from energy_etf_monitor.etfs import etf_funds_for_commodity
+from energy_etf_monitor.etfs import dashboard_commodities, etf_funds_for_commodity
 from energy_etf_monitor.storage.repository import IngestionRepository
 
 
@@ -62,7 +62,9 @@ def main() -> None:
         "inventory, and market-moving news."
     )
 
-    commodity = st.sidebar.selectbox("Commodity", list(COMMODITIES), index=0)
+    commodity = st.sidebar.selectbox(
+        "Commodity", list(dashboard_commodities(tuple(COMMODITIES))), index=0
+    )
     as_of = datetime.now(UTC)
     feature_rows, news, fund_metrics, fund_holdings, funds = _load(commodity, as_of)
 

@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 
+from energy_etf_monitor.dashboard import static_report
 from energy_etf_monitor.dashboard.static_report import render_dashboard_html
 from energy_etf_monitor.records import (
     CotPosition,
@@ -151,6 +152,49 @@ def test_render_dashboard_handles_empty_state() -> None:
     assert "Energy price factors" in page
     assert '"news": []' in page  # empty series embed without crashing
     assert "ETF roll watch" in page
+
+
+def test_render_dashboard_includes_brent_etp_universe_and_coverage_note() -> None:
+    as_of = datetime(2026, 6, 15, 12, tzinfo=UTC)
+
+    page = render_dashboard_html(
+        commodity="BRENT",
+        feature_rows=[],
+        news=[],
+        as_of=as_of,
+        fund_metrics=[
+            _metric("BNO", date(2026, 6, 12), 3_000_000),
+            _metric("SBRT", date(2026, 6, 12), -2_000_000),
+        ],
+        commodities=("WTI", "BRENT"),
+    )
+
+    assert "ETF/ETP analysis only" in page
+    assert "ICE curve source" in page
+    for ticker in ("BNO", "BRNT", "SBRT", "LBRT", "3BRL", "3BRS"):
+        assert ticker in page
+    assert "ETF creation / redemption by fund" in page
+    assert "BRENT-equivalent futures exposure flow by fund" in page
+    assert '"name": "SBRT", "values": [2.0]' in page
+    assert '"net": {"name": "Net BRENT-equivalent flow", "values": [5.0]}' in page
+
+
+def test_write_static_site_includes_brent_dashboard_page(tmp_path, monkeypatch) -> None:
+    as_of = datetime(2026, 6, 15, 12, tzinfo=UTC)
+    built: list[tuple[str, tuple[str, ...]]] = []
+
+    def fake_build_commodity_html(commodity, settings, as_of, *, commodities=None):
+        built.append((commodity, tuple(commodities or ())))
+        return f"<!doctype html>{commodity}"
+
+    monkeypatch.setattr(static_report, "build_commodity_html", fake_build_commodity_html)
+
+    paths = static_report.write_static_site(tmp_path, settings=object(), as_of=as_of)
+
+    assert [commodity for commodity, _commodities in built] == ["WTI", "NATGAS", "RBOB", "BRENT"]
+    assert all("BRENT" in commodities for _commodity, commodities in built)
+    assert (tmp_path / "brent.html").read_text(encoding="utf-8") == "<!doctype html>BRENT"
+    assert tmp_path / "brent.html" in paths
 
 
 def test_render_dashboard_escapes_news_for_inline_script_safety() -> None:

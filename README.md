@@ -28,7 +28,7 @@ path are data-monitoring first.
 
 | Area | Primary Source | Notes |
 |---|---|---|
-| USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`; raw payloads saved before parsing. |
+| USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`; raw payloads saved before parsing. |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | Official page HTML for `UCO`, `SCO`, `BOIL`, `KOLD`; holdings tables include exposure weights and contract months. |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback for funds without an issuer connector or for cross-checks; no default dashboard ETF currently depends on it. |
 | Futures curves | Yahoo/CME-compatible curve provider | Daily curve rows by commodity product code. |
@@ -59,7 +59,7 @@ uv run energy-etf-monitor ingest-etf-holdings --load
 ```
 
 This defaults to the official-source products in the registry: `USO`, `USL`, `UCO`, `SCO`,
-`UNG`, `UNL`, `BOIL`, `KOLD`, and `UGA`.
+`UNG`, `UNL`, `BOIL`, `KOLD`, `UGA`, and `BNO`.
 For a single fund:
 
 ```bash
@@ -106,15 +106,16 @@ ETF coverage is registry-driven in `src/energy_etf_monitor/etfs.py`.
 - WTI: `USO`, `USL`, `UCO`, `SCO`
 - Natural gas: `UNG`, `UNL`, `BOIL`, `KOLD`
 - RBOB gasoline: `UGA`
-- Brent: `BNO` is registered but excluded from default dashboard/ingest until the ICE curve side is
-  available.
+- Brent: `BNO`, `BRNT`, `SBRT`, `LBRT`, `3BRL`, `3BRS`
 
 The dashboard separates official issuer data from fallback context:
 
 - USCF funds use official NAV, shares outstanding, creation/redemption (`cr`) and holdings from
-  the USCF/ALPS API.
+  the USCF/ALPS API, including `BNO`.
 - `UCO`, `SCO`, `BOIL`, and `KOLD` use official ProShares page NAV, net assets, and holdings
   tables.
+- WisdomTree Brent ETC/ETP products are shown on the Brent page as a European ETP sentiment layer;
+  they are not default-ingested until a reliable issuer/Yahoo-symbol connector is added.
 - If both sources exist for the same ticker/date, dashboard flow views prefer official issuer
   sources over Yahoo estimates.
 

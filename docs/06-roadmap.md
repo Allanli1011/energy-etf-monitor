@@ -50,10 +50,11 @@ Near-term:
 
 Issuer coverage:
 
-- USCF: `USO`, `USL`, `UNG`, `UNL`, `UGA`.
+- USCF: `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`.
 - ProShares: `UCO`, `SCO`, `BOIL`, `KOLD`.
-- Brent: keep `BNO` registered but excluded from default views until an ICE curve source is
-  available.
+- Brent dashboard: ETF/ETP-only page covers `BNO`, `BRNT`, `SBRT`, `LBRT`, `3BRL`, and `3BRS`.
+  ICE Brent curve, COT, and inventory-style factor coverage remain deferred until a reliable source
+  is available.
 
 Historical ETF backfill:
 
