@@ -221,6 +221,7 @@ def test_etf_flow_rows_prefer_official_issuer_metrics_over_yahoo_estimates() -> 
             flow=5_000_000,
             source="proshares",
         ),
+        _metric("SOIL", date(2026, 6, 13), aum=111_000_000, flow=3_000_000),
         _metric("SOIL", date(2026, 6, 12), aum=70_000_000, flow=1_000_000),
         _metric(
             "SOIL",
@@ -243,6 +244,15 @@ def test_etf_flow_rows_prefer_official_issuer_metrics_over_yahoo_estimates() -> 
     soil = next(row for row in rows if row["ticker"] == "SOIL")
     assert soil["latest_aum_usd"] == 97_000_000
     assert soil["daily_flow_usd"] == 2_000_000
+    assert soil["latest_date"] == "2026-06-12"
+
+    health_rows = etf_source_health_rows(metrics, holdings=[], funds=funds)
+    soil_health = next(row for row in health_rows if row["ticker"] == "SOIL")
+    assert soil_health["metric_source"] == "wisdomtree_fundlist"
+    assert soil_health["latest_metric_date"] == "2026-06-12"
+
+    chart = etf_flow_chart(metrics, funds=funds)
+    assert "2026-06-13" not in chart["dates"]
 
 
 def test_etf_strategy_summary_rows_aggregate_by_strategy_type() -> None:

@@ -141,7 +141,7 @@ def etf_flow_rows(
     by_ticker = _metrics_by_ticker(metrics)
     rows: list[dict[str, object]] = []
     for fund in funds:
-        fund_metrics = by_ticker.get(fund.ticker, [])
+        fund_metrics = _preferred_metric_series(by_ticker.get(fund.ticker, []))
         if not fund_metrics:
             rows.append(_empty_etf_flow_row(fund))
             continue
@@ -213,7 +213,9 @@ def etf_exposure_rows(
 
     fund_tickers = {fund.ticker for fund in funds}
     latest_metrics = {
-        ticker: rows[-1] for ticker, rows in _metrics_by_ticker(metrics).items() if rows
+        ticker: preferred[-1]
+        for ticker, rows in _metrics_by_ticker(metrics).items()
+        if (preferred := _preferred_metric_series(rows))
     }
     latest_holding_dates = _latest_holding_dates(holdings, fund_tickers)
     rows: list[dict[str, object]] = []
@@ -269,7 +271,7 @@ def etf_source_health_rows(
     rows: list[dict[str, object]] = []
     for fund in funds:
         ticker = fund.ticker
-        fund_metrics = by_ticker.get(ticker, [])
+        fund_metrics = _preferred_metric_series(by_ticker.get(ticker, []))
         latest_metric = fund_metrics[-1] if fund_metrics else None
         holding_date = latest_holding_dates.get(ticker)
         holding_rows = latest_holdings.get(ticker, [])
@@ -312,10 +314,19 @@ def etf_flow_chart(
     """Multi-fund daily flow chart data in millions of dollars."""
 
     by_ticker = _metrics_by_ticker(metrics)
-    dates = sorted({metric.report_date for metric in metrics})
+    preferred_by_ticker = {
+        fund.ticker: _preferred_metric_series(by_ticker.get(fund.ticker, [])) for fund in funds
+    }
+    dates = sorted(
+        {
+            metric.report_date
+            for fund_metrics in preferred_by_ticker.values()
+            for metric in fund_metrics
+        }
+    )
     series = []
     for fund in funds:
-        fund_metrics = {metric.report_date: metric for metric in by_ticker.get(fund.ticker, [])}
+        fund_metrics = {metric.report_date: metric for metric in preferred_by_ticker[fund.ticker]}
         values = [
             (
                 None
@@ -353,10 +364,19 @@ def etf_exposure_flow_chart(
 
     commodity = funds[0].commodity if funds else "COMMODITY"
     by_ticker = _metrics_by_ticker(metrics)
-    dates = sorted({metric.report_date for metric in metrics})
+    preferred_by_ticker = {
+        fund.ticker: _preferred_metric_series(by_ticker.get(fund.ticker, [])) for fund in funds
+    }
+    dates = sorted(
+        {
+            metric.report_date
+            for fund_metrics in preferred_by_ticker.values()
+            for metric in fund_metrics
+        }
+    )
     series = []
     for fund in funds:
-        fund_metrics = {metric.report_date: metric for metric in by_ticker.get(fund.ticker, [])}
+        fund_metrics = {metric.report_date: metric for metric in preferred_by_ticker[fund.ticker]}
         values = [
             (
                 None
@@ -417,9 +437,20 @@ def _metrics_by_ticker(
 
 def _metric_rank(metric: FundDailyMetric) -> tuple[int, datetime]:
     return (
-        _METRIC_SOURCE_PRIORITY.get(metric.source, 0),
+        _metric_source_priority(metric),
         metric.knowledge_date,
     )
+
+
+def _preferred_metric_series(metrics: Sequence[FundDailyMetric]) -> list[FundDailyMetric]:
+    if not metrics:
+        return []
+    best_priority = max(_metric_source_priority(metric) for metric in metrics)
+    return [metric for metric in metrics if _metric_source_priority(metric) == best_priority]
+
+
+def _metric_source_priority(metric: FundDailyMetric) -> int:
+    return _METRIC_SOURCE_PRIORITY.get(metric.source, 0)
 
 
 def _latest_holding_dates(
