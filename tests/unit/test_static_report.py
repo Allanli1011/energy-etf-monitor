@@ -169,8 +169,8 @@ def test_render_dashboard_includes_brent_etp_universe_and_coverage_note() -> Non
         commodities=("WTI", "BRENT"),
     )
 
-    assert "ETF/ETP analysis only" in page
-    assert "ICE curve source" in page
+    assert "CFTC COT positioning is available when ingested" in page
+    assert "No EIA-style inventory series is configured" in page
     for ticker in ("BNO", "BRNT", "SBRT", "LBRT", "3BRL", "3BRS"):
         assert ticker in page
     assert "ETF creation / redemption by fund" in page

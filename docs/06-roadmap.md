@@ -26,13 +26,15 @@ Implemented:
 - Legacy `fetch-uso-pcf --url ...` remains available for explicit CSV replay, while
   `fetch-uso-pcf` without `--url` now uses the official USCF API.
 - `ingest-etf-holdings --load` fetches official snapshots for the default ETF universe:
-  `USO`, `USL`, `UCO`, `SCO`, `UNG`, `UNL`, `BOIL`, `KOLD`, `UGA`.
+  `USO`, `USL`, `UCO`, `SCO`, `UNG`, `UNL`, `BOIL`, `KOLD`, `UGA`, `BNO`.
 - `ingest-etf-metrics --fund ... --load` remains available for explicit Yahoo fallback or
   cross-checks; no default dashboard ETF currently depends on it.
 - Dashboard ETF rows prefer official issuer metrics over Yahoo estimates when both are present
   for the same fund/date.
 - `run-nightly` now performs data ingestion, ETF holdings refresh, fallback ETF metrics, news
-  ingestion, and factor-row construction. It does not run prediction or model-health steps.
+  ingestion, and factor-row construction. The scheduled workflow runs with `--commodity ALL` so
+  every registered commodity page gets a fresh factor row. It does not run prediction or
+  model-health steps.
 - GitHub Actions `nightly.yml` follows the data-monitoring path; `monthly-retrain.yml` has been
   removed; `backfill.yml` no longer trains or commits model artifacts.
 
@@ -52,9 +54,10 @@ Issuer coverage:
 
 - USCF: `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`.
 - ProShares: `UCO`, `SCO`, `BOIL`, `KOLD`.
-- Brent dashboard: ETF/ETP-only page covers `BNO`, `BRNT`, `SBRT`, `LBRT`, `3BRL`, and `3BRS`.
-  ICE Brent curve, COT, and inventory-style factor coverage remain deferred until a reliable source
-  is available.
+- Brent dashboard: covers `BNO`, `BRNT`, `SBRT`, `LBRT`, `3BRL`, and `3BRS`; Brent futures
+  factors use Yahoo `BZ` prices/curve snapshots and CFTC Brent Last Day code `06765T`. EIA-style
+  inventory coverage and WisdomTree issuer NAV/AUM ingestion remain deferred until reliable
+  sources are identified.
 
 Historical ETF backfill:
 

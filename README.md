@@ -31,10 +31,10 @@ path are data-monitoring first.
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`; raw payloads saved before parsing. |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | Official page HTML for `UCO`, `SCO`, `BOIL`, `KOLD`; holdings tables include exposure weights and contract months. |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback for funds without an issuer connector or for cross-checks; no default dashboard ETF currently depends on it. |
-| Futures curves | Yahoo/CME-compatible curve provider | Daily curve rows by commodity product code. |
-| Inventory | EIA API | Crude, Cushing, natural gas, and product inventory series. |
+| Futures curves | Yahoo Finance futures feed | Daily curve rows by commodity product code, including Brent `BZ=F` / `BZ*.NYM`. |
+| Inventory | EIA API | Crude, Cushing, natural gas, and product inventory series; Brent has no EIA-style inventory series configured. |
 | Macro | FRED API | USD index, real yields, WTI spot, retail gasoline. |
-| Positioning | CFTC Socrata COT | Disaggregated futures-only positioning. |
+| Positioning | CFTC Socrata COT | Disaggregated futures-only positioning, including Brent Last Day `06765T`. |
 | News | GDELT + RSS, optional Marketaux/LLM | Classified into market-moving event rows and optional alerts. |
 
 ## Quick Start
@@ -91,13 +91,13 @@ uv run --extra dashboard streamlit run src/energy_etf_monitor/dashboard/app.py
 Run the scheduled-style local pipeline:
 
 ```bash
-uv run energy-etf-monitor run-nightly
+uv run energy-etf-monitor run-nightly --commodity ALL
 ```
 
 `run-nightly` now performs data ingestion, official ETF holdings refresh, fallback ETF metric
-refresh where configured, news ingestion, and factor-row construction. It does not train models,
-score predictions,
-or run model-health reports.
+refresh where configured, news ingestion, and factor-row construction. The GitHub schedule runs it
+with `--commodity ALL` so all registered commodity pages, including Brent, receive factor rows. It
+does not train models, score predictions, or run model-health reports.
 
 ## ETF Coverage
 
@@ -116,6 +116,9 @@ The dashboard separates official issuer data from fallback context:
   tables.
 - WisdomTree Brent ETC/ETP products are shown on the Brent page as a European ETP sentiment layer;
   they are not default-ingested until a reliable issuer/Yahoo-symbol connector is added.
+- Brent futures price/curve context uses Yahoo's free `BZ` futures symbols, and Brent positioning
+  uses the CFTC Brent Last Day COT market code `06765T`; exchange-official ICE EOD settlement
+  packages remain a paid upgrade path.
 - If both sources exist for the same ticker/date, dashboard flow views prefer official issuer
   sources over Yahoo estimates.
 

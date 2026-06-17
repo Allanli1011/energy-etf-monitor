@@ -141,7 +141,7 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
         strategy_badge="front-month roll",
         strategy_description=(
             "United States Brent Oil Fund, LP. Front-month ICE Brent exposure; the ETF/ETP "
-            "dashboard tracks the fund even though the core ICE curve source is still pending."
+            "dashboard tracks the fund alongside free Brent futures/COT factors."
         ),
         product_code="B",
         front_month_roll=True,
@@ -223,7 +223,7 @@ ETF_FUNDS: dict[str, EtfFundConfig] = {fund.ticker: fund for fund in ETF_FUND_LI
 def dashboard_commodities(
     base_commodities: tuple[str, ...] = DEFAULT_DASHBOARD_BASE_COMMODITIES,
 ) -> tuple[str, ...]:
-    """Commodity pages to render: core feature commodities plus ETF-only commodity pages."""
+    """Commodity pages to render: core commodity registry plus any ETF-only commodity pages."""
 
     ordered: list[str] = []
     seen: set[str] = set()

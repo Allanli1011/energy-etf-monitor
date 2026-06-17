@@ -36,6 +36,7 @@ PRODUCT_SYMBOLS = {
     "CL": ("CL=F", "CL"),
     "NG": ("NG=F", "NG"),
     "RB": ("RB=F", "RB"),
+    "BZ": ("BZ=F", "BZ"),
 }
 
 

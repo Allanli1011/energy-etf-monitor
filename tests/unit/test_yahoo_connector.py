@@ -65,6 +65,38 @@ def test_yahoo_curve_assembles_front_months_with_spreads() -> None:
     assert round(curve[0].settlement_price - curve[1].settlement_price, 2) == 0.70
 
 
+def test_yahoo_supports_brent_continuous_and_monthly_contracts() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        symbol = request.url.path.rsplit("/", 1)[-1]
+        seen.append(symbol)
+        if symbol == "BZ=F":
+            return httpx.Response(
+                200,
+                json=_chart([(datetime(2026, 6, 15, tzinfo=UTC), 80.0)]),
+            )
+        if symbol.startswith("BZ") and symbol.endswith(".NYM"):
+            return httpx.Response(
+                200,
+                json=_chart([(datetime(2026, 6, 15, tzinfo=UTC), 79.0)]),
+            )
+        return httpx.Response(404, json={"chart": {"result": None}})
+
+    connector = YahooFuturesConnector(
+        client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+    front = connector.fetch_front_history(product_code="BZ")
+    curve = connector.fetch_curve(product_code="BZ", trade_date=date(2026, 6, 16), max_months=2)
+
+    assert front[0].product_code == "BZ"
+    assert curve
+    assert all(row.product_code == "BZ" for row in curve)
+    assert "BZ=F" in seen
+    assert "BZM26.NYM" in seen
+
+
 def test_yahoo_curve_history_emits_per_contract_settlements_in_range() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         symbol = request.url.path.rsplit("/", 1)[-1]

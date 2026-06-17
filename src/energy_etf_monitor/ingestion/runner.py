@@ -122,7 +122,14 @@ class PhaseZeroIngestionRunner:
         # and derive the futures curve products straight from the commodity set.
         self.eia_series = tuple(
             dict.fromkeys(
-                [*eia_series, *(config.inventory_series_id for config in self.commodities)]
+                [
+                    *eia_series,
+                    *(
+                        config.inventory_series_id
+                        for config in self.commodities
+                        if config.inventory_series_id is not None
+                    ),
+                ]
             )
         )
         self.fred_series = tuple(fred_series)

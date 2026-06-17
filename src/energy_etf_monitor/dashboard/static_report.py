@@ -170,13 +170,21 @@ def _flow_section(commodity: str, fund_metrics: Sequence[FundDailyMetric]) -> di
 
 
 def _coverage_note(commodity: str) -> str:
-    if commodity.upper() in COMMODITIES:
+    config = COMMODITIES.get(commodity.upper())
+    if config is None:
+        return (
+            "ETF/ETP analysis only: core futures curve, inventory, and COT factor rows are not "
+            "enabled for this commodity yet. Issuer/fallback ETF rows are separated from "
+            "unavailable futures-market factor data."
+        )
+    if config.inventory_series_id is None:
+        return (
+            f"{config.name} futures prices use the free Yahoo Finance futures feed and CFTC COT "
+            "positioning is available when ingested. No EIA-style inventory series is configured "
+            "for this commodity, and this is not the paid exchange-official ICE EOD package."
+        )
+    else:
         return ""
-    return (
-        "ETF/ETP analysis only: core futures curve, inventory, and COT factor rows are not "
-        "enabled for this commodity yet. Brent ICE curve source coverage is pending, so "
-        "issuer/fallback ETF rows are separated from unavailable futures-market factor data."
-    )
 
 
 def render_dashboard_html(

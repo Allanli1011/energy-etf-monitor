@@ -514,9 +514,13 @@ class IngestionRepository:
             for value in (_cot_swap_dealer_net(row) for row in cot_rows)
             if value is not None
         ]
-        inventory = self._latest_time_series_observation(
-            series_id=config.inventory_series_id,
-            as_of=as_of_datetime,
+        inventory = (
+            self._latest_time_series_observation(
+                series_id=config.inventory_series_id,
+                as_of=as_of_datetime,
+            )
+            if config.inventory_series_id is not None
+            else None
         )
         usd_index = self._latest_time_series_observation(
             series_id=USD_INDEX_SERIES_ID,

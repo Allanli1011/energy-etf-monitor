@@ -43,7 +43,7 @@ jobs:
       - name: Initialize database schema
         run: uv run energy-etf-monitor init-db
       - name: Run nightly monitoring pipeline
-        run: uv run energy-etf-monitor run-nightly
+        run: uv run energy-etf-monitor run-nightly --commodity ALL
       - name: Push SQLite state
         env:
           GITHUB_TOKEN: ${{ github.token }}

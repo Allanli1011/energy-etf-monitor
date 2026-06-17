@@ -144,7 +144,7 @@ def test_phase_zero_runner_loads_records_with_matching_repository_methods(tmp_pa
 
 
 def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
-    from energy_etf_monitor.commodities import NATGAS, WTI
+    from energy_etf_monitor.commodities import BRENT, NATGAS, WTI
 
     calls: dict[str, list] = {"eia": [], "cot": [], "cme": []}
 
@@ -173,16 +173,19 @@ def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
         fred_connector=FakeFred(),
         cftc_connector=FakeCftc(),
         curve_provider=FakeCme(),
-        commodities=(WTI, NATGAS),
+        commodities=(WTI, NATGAS, BRENT),
     )
 
     runner.run(load=False, trade_date=date(2026, 6, 12), cot_limit=10)
 
     # COT fetched per commodity with each contract code; curve per product code.
-    assert calls["cot"] == [("WTI", "067651"), ("NATGAS", "023651")]
-    assert calls["cme"] == ["CL", "NG"]
+    assert calls["cot"] == [("WTI", "067651"), ("NATGAS", "023651"), ("BRENT", "06765T")]
+    assert calls["cme"] == ["CL", "NG", "BZ"]
     # NatGas storage series is folded into the EIA series list.
     assert "NG.NW2_EPG0_SWO_R48_BCF.W" in calls["eia"]
+    # Brent has no EIA-style inventory series, so no null/empty series is fetched.
+    assert None not in calls["eia"]
+    assert "" not in calls["eia"]
 
 
 def test_phase_zero_runner_isolates_a_failing_source(tmp_path) -> None:

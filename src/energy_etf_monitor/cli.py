@@ -219,7 +219,7 @@ def build_wti_feature_range(
 
 @app.command()
 def build_features(
-    commodity: str = typer.Option("WTI", "--commodity"),
+    commodity: str = typer.Option("WTI", "--commodity", help="Commodity to build."),
     as_of: str = typer.Option(..., "--as-of"),
 ) -> None:
     """Build and load one point-in-time feature row for any registered commodity."""
@@ -235,7 +235,7 @@ def build_features(
 
 @app.command()
 def build_feature_range(
-    commodity: str = typer.Option("WTI", "--commodity"),
+    commodity: str = typer.Option("WTI", "--commodity", help="Commodity to build, or ALL."),
     start_date: str = typer.Option(..., "--start-date"),
     end_date: str = typer.Option(..., "--end-date"),
     as_of_time: str = typer.Option("18:00:00+00:00", "--as-of-time"),
@@ -548,12 +548,23 @@ def run_nightly(
         typer.echo(f"News ingestion skipped: {exc}")
 
     with IngestionRepository.from_settings(settings) as repository:
-        typer.echo("[5/5] Building factor row...")
-        feature_row = repository.derive_feature_row(
-            config=commodity_config(commodity), as_of=as_of
+        target_configs = (
+            list(COMMODITIES.values())
+            if commodity.upper() == "ALL"
+            else [commodity_config(commodity)]
         )
-        repository.upsert_daily_feature_rows([feature_row])
-        typer.echo(f"Feature row for {feature_row.report_date} ready.")
+        typer.echo("[5/5] Building factor row(s)...")
+        feature_rows = []
+        for config in target_configs:
+            try:
+                feature_row = repository.derive_feature_row(config=config, as_of=as_of)
+            except ValueError as exc:
+                typer.echo(f"  ! skipped {config.name} feature row - {exc}")
+                continue
+            feature_rows.append(feature_row)
+            typer.echo(f"Feature row for {config.name} {feature_row.report_date} ready.")
+        if feature_rows:
+            repository.upsert_daily_feature_rows(feature_rows)
 
     typer.echo("Nightly monitoring run complete.")
 

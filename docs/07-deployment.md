@@ -21,9 +21,10 @@ The old monthly retrain workflow has been removed.
 2. Official ETF holdings and NAV/share ingestion from USCF and ProShares.
 3. Fallback Yahoo ETF metric context ingestion where configured.
 4. News ingestion and optional alerts.
-5. Point-in-time factor-row construction.
+5. Point-in-time factor-row construction for all registered commodities.
 
-It does not require `models/*.json`, `gbm`, or model artifact secrets.
+The scheduled workflow calls `run-nightly --commodity ALL`. It does not require `models/*.json`,
+`gbm`, or model artifact secrets.
 
 ## Persistent State
 

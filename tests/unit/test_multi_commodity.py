@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-from energy_etf_monitor.commodities import NATGAS
+from energy_etf_monitor.commodities import BRENT, NATGAS
 from energy_etf_monitor.records import CotPosition, FuturesSettlement, TimeSeriesObservation
 from energy_etf_monitor.storage.repository import IngestionRepository
 
@@ -119,3 +119,56 @@ def test_derive_feature_row_excludes_natgas_cot_not_yet_published(session: Sessi
 
     assert row.commodity == "NATGAS"
     assert row.cot_swap_dealer_net is None
+
+
+def test_derive_feature_row_supports_brent_without_inventory_series(session: Session) -> None:
+    repository = IngestionRepository(session)
+    as_of = datetime(2026, 6, 12, 20, tzinfo=UTC)
+
+    repository.upsert_futures_settlements(
+        [
+            FuturesSettlement(
+                source="yahoo",
+                product_code="BZ",
+                report_date=date(2026, 6, 12),
+                knowledge_date=datetime(2026, 6, 12, 16, tzinfo=UTC),
+                contract_month=date(2026, 8, 1),
+                settlement_price=80.0,
+                open_interest=50_000,
+            ),
+            FuturesSettlement(
+                source="yahoo",
+                product_code="BZ",
+                report_date=date(2026, 6, 12),
+                knowledge_date=datetime(2026, 6, 12, 16, tzinfo=UTC),
+                contract_month=date(2026, 9, 1),
+                settlement_price=79.5,
+                open_interest=40_000,
+            ),
+        ]
+    )
+    repository.upsert_cot_positions(
+        [
+            CotPosition(
+                source="cftc",
+                commodity="BRENT",
+                market_name="BRENT LAST DAY",
+                contract_market_code="06765T",
+                report_date=date(2026, 6, 9),
+                knowledge_date=datetime(2026, 6, 12, 19, 30, tzinfo=UTC),
+                open_interest=250_000,
+                swap_dealer_long=120_000,
+                swap_dealer_short=90_000,
+            )
+        ]
+    )
+
+    row = repository.derive_feature_row(config=BRENT, as_of=as_of)
+
+    assert row.commodity == "BRENT"
+    assert row.cl_front_month_settlement == 80.0
+    assert row.cl_m1_m2_spread == 0.5
+    assert row.cot_swap_dealer_net == 30_000
+    assert row.cot_open_interest == 250_000
+    assert row.inventory_value is None
+    assert row.inventory_seasonal_surprise is None

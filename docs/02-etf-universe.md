@@ -82,6 +82,8 @@ Counterparties seen for the swap legs include Goldman Sachs, Societe Generale. K
 Roll schedules for these live in the **Bloomberg index methodology** documents, not the ETC itself.
 They are visible on the Brent dashboard as ETF/ETP flow and AUM context; unlike USCF commodity
 pools, their underlying futures/swap legs are not transparent daily PCF rows.
+Brent futures context on the dashboard uses free Yahoo `BZ` futures symbols and CFTC Brent Last Day
+positioning; this does not replace exchange-official ICE end-of-day data.
 
 ## Chemicals — confirmed: no Western ETF wrapper exists
 

@@ -9,8 +9,8 @@ A free backbone is enough for the non-model monitoring MVP. Paid sources remain 
 | Crude / product / Cushing inventory | EIA Open Data API v2 | `https://api.eia.gov/v2/...`; key series include `WCESTUS1`, `WCRSTUS1`, `WCSSTUS1`, `W_EPC0_SAX_YCUOK_MBBL` | Weekly |
 | Natural gas storage | EIA Weekly NatGas Storage | `NG.NW2_EPG0_SWO_R48_BCF.W` and regional series | Weekly |
 | Macro | FRED API | `DTWEXBGS`, `DFII10`, `DCOILWTICO`, `GASREGW` | Daily / weekly |
-| Positioning | CFTC Socrata API | Disaggregated Futures-Only `72hh-3qpy` plus commodity filters | Weekly, T+3 |
-| Futures curve | Free Yahoo/CME-compatible curve provider | CL, NG, RB, HO listed month snapshots where available | Daily |
+| Positioning | CFTC Socrata API | Disaggregated Futures-Only `72hh-3qpy` plus commodity filters, including Brent Last Day `06765T` | Weekly, T+3 |
+| Futures curve | Yahoo Finance futures feed | CL, NG, RB, and BZ listed month snapshots where available | Daily |
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings stack via ALPS MarketingAPI | Fetch `api_key.php` from USCF, then call `dailyprice/{ticker}` and `holding/{ticker}/full` with the bearer token | Daily, T+1 |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | `UCO`, `SCO`, `BOIL`, `KOLD` HTML pages with price/snapshot blocks and holdings tables | Daily, T+1 |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback/cross-check for products without issuer holdings connectors | Daily |
@@ -75,6 +75,8 @@ derived from same-source shares outstanding deltas.
 - USCF current public endpoints expose latest holdings, not a clean historical holdings archive.
   Going-forward raw JSON capture is therefore important.
 - Yahoo ETF metric data is a fallback estimate and should not override official issuer data.
+- Yahoo Brent futures data is useful for free dashboard context, but it is not the exchange-official
+  ICE end-of-day settlement package.
 - ETF.com and ETFDB fund-flow pages are unreliable for automated free ingestion; prefer issuer
   primaries or paid APIs.
 - EIA release timing shifts on federal-holiday weeks; release calendars should become explicit

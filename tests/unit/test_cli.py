@@ -169,7 +169,12 @@ def test_ingest_phase0_command_runs_batch_runner(monkeypatch) -> None:
     assert result.exit_code == 0
     assert called["args"] == (True, date(2026, 6, 12), 25)
     # No --commodity given -> defaults to the full registry.
-    assert {config.name for config in called["commodities"]} == {"WTI", "NATGAS", "RBOB"}
+    assert {config.name for config in called["commodities"]} == {
+        "WTI",
+        "NATGAS",
+        "RBOB",
+        "BRENT",
+    }
     assert "Fetched 3 rows across 2 tasks" in result.output
     assert "Loaded 1 rows" in result.output
 
@@ -1140,6 +1145,61 @@ def test_run_nightly_command_runs_without_prediction_artifacts(monkeypatch) -> N
     assert "Predicting" not in result.output
     assert "Model health" not in result.output
     assert "Nightly monitoring run complete." in result.output
+
+
+def test_run_nightly_command_can_build_all_commodity_feature_rows(monkeypatch) -> None:
+    runner = CliRunner()
+    derived: list[str] = []
+    loaded: dict[str, object] = {}
+
+    class FakeFeatureRow:
+        def __init__(self, commodity: str) -> None:
+            self.commodity = commodity
+            self.report_date = date(2026, 6, 12)
+
+    class FakeIngest:
+        def __init__(self, *, settings, commodities=None):
+            pass
+
+        def run(self, *, load, trade_date, cot_limit):
+            from energy_etf_monitor.ingestion.runner import BatchIngestionResult
+
+            return BatchIngestionResult()
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def derive_feature_row(self, *, config, as_of):
+            derived.append(config.name)
+            return FakeFeatureRow(config.name)
+
+        def upsert_daily_feature_rows(self, records):
+            loaded["feature_records"] = records
+            return cli.LoadResult(inserted=len(records))
+
+        def upsert_news_articles(self, records):
+            return cli.LoadResult(inserted=len(records))
+
+    monkeypatch.setattr(cli, "PhaseZeroIngestionRunner", FakeIngest)
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+    monkeypatch.setattr(cli, "_collect_news", lambda settings, *, timespan, max_records: [])
+    monkeypatch.setattr(cli, "_ingest_official_etf_holdings", lambda settings: None)
+    monkeypatch.setattr(cli, "_ingest_yahoo_etf_metric_context", lambda settings: None)
+
+    result = runner.invoke(cli.app, ["run-nightly", "--commodity", "ALL"])
+
+    assert result.exit_code == 0
+    assert derived == ["WTI", "NATGAS", "RBOB", "BRENT"]
+    assert [row.commodity for row in loaded["feature_records"]] == derived
+    assert "Feature row for BRENT 2026-06-12 ready." in result.output
 
 
 def test_ingest_news_command_reports_alerts_and_loads(monkeypatch) -> None:
