@@ -10,6 +10,8 @@ it does not train or run prediction models.
   late in the prior US trading evening so official ETF issuer files have more time to publish.
 - `.github/workflows/backfill.yml`: manual source/factor backfill, no model training.
 - `.github/workflows/pages.yml`: builds and deploys the static dashboard to GitHub Pages.
+  The Pages build restores SQLite state, refreshes official ETF snapshots, refreshes configured
+  Yahoo fallback ETF metrics, and then renders the static site.
 
 The old monthly retrain workflow has been removed.
 
