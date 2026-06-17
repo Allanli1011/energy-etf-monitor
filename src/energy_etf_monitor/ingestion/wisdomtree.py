@@ -60,6 +60,20 @@ class WisdomTreeFundListConnector:
         )
 
     def _fetch_payload(self) -> list[dict[str, Any]]:
+        if self.client is None:
+            payload = _fetch_with_browser_tls(self.fundlist_url, WISDOMTREE_FUNDLIST_PARAMS)
+        else:
+            try:
+                payload = self._fetch_payload_with_httpx()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in {403, 429}:
+                    raise
+                payload = _fetch_with_browser_tls(self.fundlist_url, WISDOMTREE_FUNDLIST_PARAMS)
+        if not isinstance(payload, list):
+            raise ValueError("WisdomTree fundlist returned a non-list payload")
+        return payload
+
+    def _fetch_payload_with_httpx(self) -> Any:
         client = self.client or httpx.Client(
             timeout=40,
             follow_redirects=True,
@@ -87,8 +101,6 @@ class WisdomTreeFundListConnector:
         finally:
             if close_client:
                 client.close()
-        if not isinstance(payload, list):
-            raise ValueError("WisdomTree fundlist returned a non-list payload")
         return payload
 
 
@@ -162,3 +174,25 @@ def _optional_number(value: Any) -> float | None:
     if value is None or value == "":
         return None
     return _number(value)
+
+
+def _fetch_with_browser_tls(url: str, params: dict[str, Any]) -> Any:
+    from curl_cffi import requests as curl_requests
+
+    response = curl_requests.get(
+        url,
+        params=params,
+        headers={
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "en-GB,en;q=0.9,en-US;q=0.8",
+            "origin": "https://www.wisdomtree.eu",
+            "referer": (
+                "https://www.wisdomtree.eu/products?assetClass=Commodities"
+                "&structure=ETPs&productType=Short%20and%20Leveraged"
+            ),
+        },
+        impersonate="chrome120",
+        timeout=40,
+    )
+    response.raise_for_status()
+    return response.json()

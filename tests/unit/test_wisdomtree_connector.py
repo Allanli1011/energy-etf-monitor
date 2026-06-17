@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 
 import httpx
 
+import energy_etf_monitor.ingestion.wisdomtree as wisdomtree
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.ingestion.wisdomtree import (
     WISDOMTREE_FUNDLIST_PARAMS,
@@ -91,3 +92,27 @@ def test_wisdomtree_connector_fetches_fundlist_and_saves_raw(tmp_path) -> None:
     assert metrics[0].fund_ticker == "BRNT"
     assert "Mozilla" in seen["user_agent"]
     assert list((tmp_path / "wisdomtree_fundlist").glob("*/*.json"))
+
+
+def test_wisdomtree_connector_uses_browser_tls_fallback_for_403(monkeypatch) -> None:
+    browser_tls_calls: list[tuple[str, dict[str, object]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, request=request)
+
+    def fake_browser_tls(url: str, params: dict[str, object]) -> list[dict[str, object]]:
+        browser_tls_calls.append((url, params))
+        return SAMPLE_FUNDLIST
+
+    monkeypatch.setattr(wisdomtree, "_fetch_with_browser_tls", fake_browser_tls)
+    connector = WisdomTreeFundListConnector(
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        fundlist_url="https://example.test/fundlist/data/",
+    )
+
+    metrics = connector.fetch_metrics(fund_tickers=["BRNT"])
+
+    assert [metric.fund_ticker for metric in metrics] == ["BRNT"]
+    assert browser_tls_calls == [
+        ("https://example.test/fundlist/data/", WISDOMTREE_FUNDLIST_PARAMS)
+    ]

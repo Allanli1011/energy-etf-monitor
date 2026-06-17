@@ -73,10 +73,11 @@ product can have multiple listing currencies, the connector only accepts rows wh
 `exchangeTicker` equals the dashboard ticker and `fundCurrency`, `baseCCY`, and `listingCCY` are
 all `USD`.
 
-The current WisdomTree fund-list endpoint is Cloudflare-protected for plain script HTTP clients.
-The nightly pipeline attempts it first and then uses Yahoo fallback snapshots where configured.
-The separate `funddetails/nav` API shape is known to include `nav`, `sharesOutstanding`, and `aum`,
-but it requires an `x-wt-dataspan-key`, so it remains disabled as a keyed connector.
+The current WisdomTree fund-list endpoint is Cloudflare-protected for default script HTTP clients.
+The production connector uses `curl_cffi` browser-TLS impersonation for the same official JSON
+before falling back to Yahoo snapshots where configured. The separate `funddetails/nav` API shape
+is known to include `nav`, `sharesOutstanding`, and `aum`, but it requires an `x-wt-dataspan-key`,
+so it remains disabled as a keyed connector.
 
 ## Paid Upgrade Slots
 
@@ -95,8 +96,8 @@ but it requires an `x-wt-dataspan-key`, so it remains disabled as a keyed connec
 - USCF current public endpoints expose latest holdings, not a clean historical holdings archive.
   Going-forward raw JSON capture is therefore important.
 - Yahoo ETF metric data is a fallback estimate and should not override official issuer data.
-- WisdomTree fund-list rows are official product-list data but may be blocked for non-browser
-  clients; keep Yahoo fallback enabled and prefer `wisdomtree_fundlist` when both sources exist.
+- WisdomTree fund-list rows are official product-list data; keep Yahoo fallback enabled for network
+  or anti-bot failures and prefer `wisdomtree_fundlist` when both sources exist.
 - Yahoo Brent futures data is useful for free dashboard context, but it is not the exchange-official
   ICE end-of-day settlement package.
 - ETF.com and ETFDB fund-flow pages are unreliable for automated free ingestion; prefer issuer

@@ -30,7 +30,7 @@ path are data-monitoring first.
 |---|---|---|
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`; raw payloads saved before parsing. |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | Official page HTML for `UCO`, `SCO`, `BOIL`, `KOLD`; holdings tables include exposure weights and contract months. |
-| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | Official product-list JSON for USD listings of WisdomTree Brent, WTI, and natural gas ETPs; Yahoo remains a fallback when Cloudflare blocks direct API access. |
+| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | Official product-list JSON for USD listings of WisdomTree Brent, WTI, and natural gas ETPs; the connector falls back to browser-TLS fetching before Yahoo fallback. |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback for funds without an issuer connector or for cross-checks; never overrides official issuer/fund-list rows. |
 | Futures curves | Yahoo Finance futures feed | Daily curve rows by commodity product code, including Brent `BZ=F` / `BZ*.NYM`. |
 | Inventory | EIA API | Crude, Cushing, natural gas, and product inventory series; Brent has no EIA-style inventory series configured. |
@@ -123,10 +123,11 @@ The dashboard separates official issuer data from fallback context:
   the USCF/ALPS API, including `BNO`.
 - `UCO`, `SCO`, `BOIL`, and `KOLD` use official ProShares page NAV, net assets, and holdings
   tables.
-- WisdomTree energy ETC/ETP products use the WisdomTree Europe fund-list download data when
-  reachable. The connector selects the same-name USD listing (`BRNT`, `SBRT`, `LBRT`, `3BRL`,
-  `3BRS`, plus WTI/NatGas short-leveraged tickers) and falls back to Yahoo where configured. This
-  is not issuer gross creation/redemption data; flow is a going-forward share-change proxy.
+- WisdomTree energy ETC/ETP products use the WisdomTree Europe fund-list download data. The
+  connector selects the same-name USD listing (`BRNT`, `SBRT`, `LBRT`, `3BRL`, `3BRS`, plus
+  WTI/NatGas short-leveraged tickers) and falls back to Yahoo only if issuer fund-list fetching
+  fails. This is not issuer gross creation/redemption data; flow is a going-forward share-change
+  proxy.
 - Brent futures price/curve context uses Yahoo's free `BZ` futures symbols, and Brent positioning
   uses the CFTC Brent Last Day COT market code `06765T`; exchange-official ICE EOD settlement
   packages remain a paid upgrade path.
