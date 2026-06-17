@@ -10,6 +10,7 @@ from energy_etf_monitor.dashboard.static_report import write_static_site
 from energy_etf_monitor.etfs import (
     ETF_FUNDS,
     default_official_holding_tickers,
+    default_wisdomtree_metric_tickers,
     default_yahoo_metric_tickers,
     yahoo_metric_source_ticker,
 )
@@ -28,6 +29,7 @@ from energy_etf_monitor.ingestion.runner import (
     PhaseZeroIngestionRunner,
 )
 from energy_etf_monitor.ingestion.uscf import UscfHoldingsConnector, UscfPcfConnector
+from energy_etf_monitor.ingestion.wisdomtree import WisdomTreeFundListConnector
 from energy_etf_monitor.ingestion.yahoo import YahooEtfMetricsConnector, YahooFuturesConnector
 from energy_etf_monitor.modeling.artifacts import save_model_artifact, train_logistic_artifact
 from energy_etf_monitor.modeling.baselines import evaluate_walk_forward_baselines
@@ -534,7 +536,8 @@ def run_nightly(
     typer.echo("[2/5] Ingesting official ETF holdings...")
     _ingest_official_etf_holdings(settings)
 
-    typer.echo("[3/5] Ingesting fallback ETF metric context...")
+    typer.echo("[3/5] Ingesting WisdomTree and fallback ETF metric context...")
+    _ingest_wisdomtree_etf_metric_context(settings)
     _ingest_yahoo_etf_metric_context(settings)
 
     typer.echo("[4/5] Ingesting news...")
@@ -588,6 +591,27 @@ def _ingest_official_etf_holdings(settings: Settings) -> None:
             quarantined=metric_result.quarantined + holding_result.quarantined,
         )
     )
+
+
+def _ingest_wisdomtree_etf_metric_context(settings: Settings) -> None:
+    tickers = list(default_wisdomtree_metric_tickers())
+    if not tickers:
+        typer.echo("No WisdomTree ETF metric tickers configured.")
+        return
+    connector = WisdomTreeFundListConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
+    try:
+        metrics = connector.fetch_metrics(fund_tickers=tickers)
+    except Exception as exc:  # Cloudflare/API failures should fall through to Yahoo fallback
+        typer.echo(f"  ! skipped WisdomTree fund-list metrics - {exc}")
+        return
+    if not metrics:
+        typer.echo("No WisdomTree fund-list metrics loaded.")
+        return
+    missing = sorted(set(tickers) - {metric.fund_ticker for metric in metrics})
+    if missing:
+        typer.echo(f"  ! WisdomTree fund-list missing USD rows for: {', '.join(missing)}")
+    with IngestionRepository.from_settings(settings) as repository:
+        _echo_load_result(repository.upsert_fund_daily_metrics(metrics))
 
 
 def _fetch_official_etf_snapshots(settings: Settings, tickers: list[str]):
@@ -952,6 +976,32 @@ def ingest_etf_metrics(
         except Exception as exc:  # one fund failing (crumb/rate-limit) must not abort the rest
             typer.echo(f"  ! skipped {ticker} ({source_ticker}) - {exc}")
     typer.echo(f"Fetched {len(metrics)} ETF metric snapshots ({', '.join(tickers)}).")
+    if load and metrics:
+        with IngestionRepository.from_settings(settings) as repository:
+            _echo_load_result(repository.upsert_fund_daily_metrics(metrics))
+
+
+@app.command()
+def ingest_wisdomtree_metrics(
+    fund: Annotated[list[str] | None, typer.Option("--fund")] = None,
+    load: bool = typer.Option(False, "--load"),
+) -> None:
+    """Fetch WisdomTree Europe fund-list NAV/AUM metrics for USD-listed ETPs."""
+
+    settings = Settings()
+    tickers = [f.upper() for f in fund] if fund else list(default_wisdomtree_metric_tickers())
+    connector = WisdomTreeFundListConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
+    fetch_failed = False
+    try:
+        metrics = connector.fetch_metrics(fund_tickers=tickers)
+    except Exception as exc:
+        typer.echo(f"  ! skipped WisdomTree fund-list metrics - {exc}")
+        fetch_failed = True
+        metrics = []
+    missing = sorted(set(tickers) - {metric.fund_ticker for metric in metrics})
+    if missing and not fetch_failed:
+        typer.echo(f"  ! WisdomTree fund-list missing USD rows for: {', '.join(missing)}")
+    typer.echo(f"Fetched {len(metrics)} WisdomTree metric snapshots ({', '.join(tickers)}).")
     if load and metrics:
         with IngestionRepository.from_settings(settings) as repository:
             _echo_load_result(repository.upsert_fund_daily_metrics(metrics))

@@ -74,7 +74,8 @@ Counterparties seen for the swap legs include Goldman Sachs, Societe Generale. K
 | WisdomTree Brent Crude Oil 2x Daily Leveraged (`LBRT` / `2BRT`) | +2x daily Brent crude futures exposure | Fully-collateralised swap-based ETP |
 | WisdomTree Brent Crude Oil 3x Daily Leveraged (`3BRL`) | +3x daily Brent crude futures exposure | Fully-collateralised swap-based ETP |
 | WisdomTree Brent Crude Oil 3x Daily Short (`3BRS`) | -3x daily Brent crude futures exposure | Fully-collateralised swap-based ETP |
-| WisdomTree WTI / Natural Gas ETCs (+ leveraged / inverse variants) | Bloomberg single-commodity subindices (e.g. `BCLMT4T` WTI, `BCOMNG4T` NatGas) | Fully-collateralised swap-based ETC |
+| WisdomTree WTI Crude Oil 1x Short / 2x Leveraged / 3x Leveraged / 3x Short (`SOIL`, `LOIL`, `3OIL`, `3OIS`) | WTI crude futures short/leveraged exposure | Fully-collateralised swap-based ETP |
+| WisdomTree Natural Gas 1x Short / 2x Leveraged / 3x Leveraged / 3x Short (`SNGA`, `LNGA`, `3NGL`, `3NGS`) | Natural gas futures short/leveraged exposure | Fully-collateralised swap-based ETP |
 | iShares Diversified Commodity Swap UCITS ETF (+ Enhanced Roll Yield) | Bloomberg Commodity (Total Return) Index | Synthetic swap |
 | L&G All Commodities UCITS ETF | Bloomberg Commodity Index | Synthetic swap |
 | Invesco Bloomberg Commodity UCITS ETF | Bloomberg Commodity Index | Synthetic swap |
@@ -82,9 +83,9 @@ Counterparties seen for the swap legs include Goldman Sachs, Societe Generale. K
 Roll schedules for these live in the **Bloomberg index methodology** documents, not the ETC itself.
 They are visible on the Brent dashboard as ETF/ETP flow and AUM context; unlike USCF commodity
 pools, their underlying futures/swap legs are not transparent daily PCF rows.
-WisdomTree Brent ETP metrics are ingested from Yahoo fallback listing symbols until issuer API
-credentials are available; their flow is a share-change proxy, not disclosed issuer
-creation/redemption activity.
+WisdomTree energy ETP metrics are ingested from the official fund-list/download endpoint when
+reachable, selecting the same-name USD listing. Yahoo remains fallback context. Their flow is a
+share-change proxy, not disclosed issuer creation/redemption activity.
 Brent futures context on the dashboard uses free Yahoo `BZ` futures symbols and CFTC Brent Last Day
 positioning; this does not replace exchange-official ICE end-of-day data.
 

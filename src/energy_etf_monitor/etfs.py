@@ -74,6 +74,62 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
         leverage=-2.0,
     ),
     EtfFundConfig(
+        ticker="SOIL",
+        commodity="WTI",
+        issuer="WisdomTree",
+        strategy_type="inverse",
+        strategy_badge="-1x short",
+        strategy_description=(
+            "WisdomTree WTI Crude Oil 1x Daily Short. USD-listed WisdomTree ETP; "
+            "cash flow and WTI-equivalent exposure flow use opposite signs."
+        ),
+        product_code="CL",
+        metric_source_ticker="SOIL.L",
+        leverage=-1.0,
+    ),
+    EtfFundConfig(
+        ticker="LOIL",
+        commodity="WTI",
+        issuer="WisdomTree",
+        strategy_type="leveraged",
+        strategy_badge="2x leveraged",
+        strategy_description=(
+            "WisdomTree WTI Crude Oil 2x Daily Leveraged. USD-listed WisdomTree ETP; "
+            "treated as leveraged directional WTI notional pressure."
+        ),
+        product_code="CL",
+        metric_source_ticker="LOIL.L",
+        leverage=2.0,
+    ),
+    EtfFundConfig(
+        ticker="3OIL",
+        commodity="WTI",
+        issuer="WisdomTree",
+        strategy_type="leveraged",
+        strategy_badge="3x leveraged",
+        strategy_description=(
+            "WisdomTree WTI Crude Oil 3x Daily Leveraged. USD-listed WisdomTree ETP; "
+            "treated as leveraged directional WTI notional pressure."
+        ),
+        product_code="CL",
+        metric_source_ticker="3OIL.L",
+        leverage=3.0,
+    ),
+    EtfFundConfig(
+        ticker="3OIS",
+        commodity="WTI",
+        issuer="WisdomTree",
+        strategy_type="inverse",
+        strategy_badge="-3x short",
+        strategy_description=(
+            "WisdomTree WTI Crude Oil 3x Daily Short. USD-listed WisdomTree ETP; "
+            "redemptions can translate into positive WTI-equivalent exposure flow."
+        ),
+        product_code="CL",
+        metric_source_ticker="3OIS.L",
+        leverage=-3.0,
+    ),
+    EtfFundConfig(
         ticker="UNG",
         commodity="NATGAS",
         issuer="USCF",
@@ -119,6 +175,62 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
         strategy_description="Daily -2x natural-gas-linked product; inverse leveraged context.",
         product_code="NG",
         leverage=-2.0,
+    ),
+    EtfFundConfig(
+        ticker="SNGA",
+        commodity="NATGAS",
+        issuer="WisdomTree",
+        strategy_type="inverse",
+        strategy_badge="-1x short",
+        strategy_description=(
+            "WisdomTree Natural Gas 1x Daily Short. USD-listed WisdomTree ETP; "
+            "cash flow and Henry Hub-equivalent exposure flow use opposite signs."
+        ),
+        product_code="NG",
+        metric_source_ticker="SNGA.L",
+        leverage=-1.0,
+    ),
+    EtfFundConfig(
+        ticker="LNGA",
+        commodity="NATGAS",
+        issuer="WisdomTree",
+        strategy_type="leveraged",
+        strategy_badge="2x leveraged",
+        strategy_description=(
+            "WisdomTree Natural Gas 2x Daily Leveraged. USD-listed WisdomTree ETP; "
+            "treated as leveraged directional natural gas notional pressure."
+        ),
+        product_code="NG",
+        metric_source_ticker="LNGA.L",
+        leverage=2.0,
+    ),
+    EtfFundConfig(
+        ticker="3NGL",
+        commodity="NATGAS",
+        issuer="WisdomTree",
+        strategy_type="leveraged",
+        strategy_badge="3x leveraged",
+        strategy_description=(
+            "WisdomTree Natural Gas 3x Daily Leveraged. USD-listed WisdomTree ETP; "
+            "treated as leveraged directional natural gas notional pressure."
+        ),
+        product_code="NG",
+        metric_source_ticker="3NGL.L",
+        leverage=3.0,
+    ),
+    EtfFundConfig(
+        ticker="3NGS",
+        commodity="NATGAS",
+        issuer="WisdomTree",
+        strategy_type="inverse",
+        strategy_badge="-3x short",
+        strategy_description=(
+            "WisdomTree Natural Gas 3x Daily Short. USD-listed WisdomTree ETP; "
+            "redemptions can translate into positive natural gas-equivalent exposure flow."
+        ),
+        product_code="NG",
+        metric_source_ticker="3NGS.L",
+        leverage=-3.0,
     ),
     EtfFundConfig(
         ticker="UGA",
@@ -305,6 +417,19 @@ def default_yahoo_metric_tickers(
         for fund in ETF_FUND_LIST
         if fund.commodity in allowed
         and fund.ticker not in official_tickers
+        and fund.include_in_metric_ingest
+    )
+
+
+def default_wisdomtree_metric_tickers(
+    commodities: tuple[str, ...] | None = None,
+) -> tuple[str, ...]:
+    allowed = _allowed_commodities(commodities)
+    return tuple(
+        fund.ticker
+        for fund in ETF_FUND_LIST
+        if fund.commodity in allowed
+        and fund.issuer.upper() == "WISDOMTREE"
         and fund.include_in_metric_ingest
     )
 

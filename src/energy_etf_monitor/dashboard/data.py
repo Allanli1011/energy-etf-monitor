@@ -22,6 +22,7 @@ _METRIC_SOURCE_PRIORITY = {
     "uscf": 3,
     "uscf_api": 3,
     "proshares": 3,
+    "wisdomtree_fundlist": 2,
     "yahoo_etf": 1,
 }
 
@@ -475,6 +476,8 @@ def _source_health_notes(
     notes: list[str] = []
     if metric is None:
         notes.append("No issuer metric snapshot loaded")
+    elif metric.source == "wisdomtree_fundlist":
+        notes.append("Using WisdomTree fund-list metric; holdings/PCF are not disclosed")
     elif metric.source == "yahoo_etf":
         notes.append("Using Yahoo fallback metric, not issuer data")
     if holding_date is None:

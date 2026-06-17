@@ -221,6 +221,14 @@ def test_etf_flow_rows_prefer_official_issuer_metrics_over_yahoo_estimates() -> 
             flow=5_000_000,
             source="proshares",
         ),
+        _metric("SOIL", date(2026, 6, 12), aum=70_000_000, flow=1_000_000),
+        _metric(
+            "SOIL",
+            date(2026, 6, 12),
+            aum=97_000_000,
+            flow=2_000_000,
+            source="wisdomtree_fundlist",
+        ),
     ]
 
     rows = etf_flow_rows(metrics, funds=funds)
@@ -232,6 +240,9 @@ def test_etf_flow_rows_prefer_official_issuer_metrics_over_yahoo_estimates() -> 
     uco = next(row for row in rows if row["ticker"] == "UCO")
     assert uco["latest_aum_usd"] == 399_000_000
     assert uco["daily_flow_usd"] == 5_000_000
+    soil = next(row for row in rows if row["ticker"] == "SOIL")
+    assert soil["latest_aum_usd"] == 97_000_000
+    assert soil["daily_flow_usd"] == 2_000_000
 
 
 def test_etf_strategy_summary_rows_aggregate_by_strategy_type() -> None:

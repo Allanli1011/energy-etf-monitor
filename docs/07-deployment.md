@@ -10,8 +10,9 @@ it does not train or run prediction models.
   late in the prior US trading evening so official ETF issuer files have more time to publish.
 - `.github/workflows/backfill.yml`: manual source/factor backfill, no model training.
 - `.github/workflows/pages.yml`: builds and deploys the static dashboard to GitHub Pages.
-  The Pages build restores SQLite state, refreshes official ETF snapshots, refreshes configured
-  Yahoo fallback ETF metrics, and then renders the static site.
+  The Pages build restores SQLite state, refreshes official ETF snapshots, refreshes WisdomTree
+  fund-list metrics, refreshes configured Yahoo fallback ETF metrics, and then renders the static
+  site.
 
 The old monthly retrain workflow has been removed.
 
@@ -21,9 +22,10 @@ The old monthly retrain workflow has been removed.
 
 1. EIA/FRED/CFTC/futures ingestion.
 2. Official ETF holdings and NAV/share ingestion from USCF and ProShares.
-3. Fallback Yahoo ETF metric context ingestion where configured.
-4. News ingestion and optional alerts.
-5. Point-in-time factor-row construction for all registered commodities.
+3. WisdomTree fund-list NAV/share/AUM ingestion where configured.
+4. Fallback Yahoo ETF metric context ingestion where configured.
+5. News ingestion and optional alerts.
+6. Point-in-time factor-row construction for all registered commodities.
 
 The scheduled workflow calls `run-nightly --commodity ALL`. It does not require `models/*.json`,
 `gbm`, or model artifact secrets.

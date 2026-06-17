@@ -5,6 +5,7 @@ from energy_etf_monitor.etfs import (
     default_official_holding_tickers,
     default_proshares_holding_tickers,
     default_uscf_holding_tickers,
+    default_wisdomtree_metric_tickers,
     default_yahoo_metric_tickers,
     etf_funds_for_commodity,
     yahoo_metric_source_ticker,
@@ -15,14 +16,32 @@ def test_etf_registry_covers_core_strategy_types() -> None:
     wti = etf_funds_for_commodity("WTI")
     natgas = etf_funds_for_commodity("natgas")
 
-    assert [fund.ticker for fund in wti] == ["USO", "USL", "UCO", "SCO"]
+    assert [fund.ticker for fund in wti] == [
+        "USO",
+        "USL",
+        "UCO",
+        "SCO",
+        "SOIL",
+        "LOIL",
+        "3OIL",
+        "3OIS",
+    ]
     assert {fund.strategy_type for fund in wti} >= {
         "front_month",
         "laddered",
         "leveraged",
         "inverse",
     }
-    assert {fund.ticker for fund in natgas} >= {"UNG", "UNL", "BOIL", "KOLD"}
+    assert {fund.ticker for fund in natgas} >= {
+        "UNG",
+        "UNL",
+        "BOIL",
+        "KOLD",
+        "SNGA",
+        "LNGA",
+        "3NGL",
+        "3NGS",
+    }
 
 
 def test_brent_etp_registry_includes_requested_products() -> None:
@@ -65,6 +84,7 @@ def test_default_source_tickers_route_supported_issuers_to_official_connectors()
     uscf = default_uscf_holding_tickers()
     proshares = default_proshares_holding_tickers()
     official = default_official_holding_tickers()
+    wisdomtree = default_wisdomtree_metric_tickers()
     yahoo = default_yahoo_metric_tickers()
 
     assert {"USO", "USL", "UNG", "UNL", "UGA", "BNO"}.issubset(uscf)
@@ -73,7 +93,22 @@ def test_default_source_tickers_route_supported_issuers_to_official_connectors()
         official
     )
     assert "DBO" not in official
-    assert yahoo == ("BRNT", "SBRT", "LBRT", "3BRL", "3BRS")
+    assert wisdomtree == (
+        "SOIL",
+        "LOIL",
+        "3OIL",
+        "3OIS",
+        "SNGA",
+        "LNGA",
+        "3NGL",
+        "3NGS",
+        "BRNT",
+        "SBRT",
+        "LBRT",
+        "3BRL",
+        "3BRS",
+    )
+    assert yahoo == wisdomtree
 
 
 def test_registry_keeps_model_and_dashboard_roles_separate() -> None:

@@ -1061,6 +1061,11 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
     )
     monkeypatch.setattr(
         cli,
+        "_ingest_wisdomtree_etf_metric_context",
+        lambda settings: loaded.setdefault("wisdomtree_etf", True),
+    )
+    monkeypatch.setattr(
+        cli,
         "_ingest_yahoo_etf_metric_context",
         lambda settings: loaded.setdefault("yahoo_etf", True),
     )
@@ -1082,6 +1087,7 @@ def test_run_nightly_command_chains_all_steps(monkeypatch, tmp_path) -> None:
     assert loaded["ingest_run"]["load"] is True
     assert loaded["ingest_run"]["trade_date"] == date(2026, 6, 12)
     assert loaded["official_etf"] is True
+    assert loaded["wisdomtree_etf"] is True
     assert loaded["yahoo_etf"] is True
     assert loaded["feature_records"] == [feature_row]
     assert "Building factor row" in result.output
@@ -1131,6 +1137,11 @@ def test_run_nightly_command_runs_without_prediction_artifacts(monkeypatch) -> N
     monkeypatch.setattr(
         cli,
         "_ingest_official_etf_holdings",
+        lambda settings: None,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_ingest_wisdomtree_etf_metric_context",
         lambda settings: None,
     )
     monkeypatch.setattr(
@@ -1192,6 +1203,7 @@ def test_run_nightly_command_can_build_all_commodity_feature_rows(monkeypatch) -
     monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
     monkeypatch.setattr(cli, "_collect_news", lambda settings, *, timespan, max_records: [])
     monkeypatch.setattr(cli, "_ingest_official_etf_holdings", lambda settings: None)
+    monkeypatch.setattr(cli, "_ingest_wisdomtree_etf_metric_context", lambda settings: None)
     monkeypatch.setattr(cli, "_ingest_yahoo_etf_metric_context", lambda settings: None)
 
     result = runner.invoke(cli.app, ["run-nightly", "--commodity", "ALL"])
@@ -1376,6 +1388,21 @@ def test_model_health_command_scores_and_reports(monkeypatch, tmp_path) -> None:
 def test_ingest_etf_metrics_defaults_to_wisdomtree_fallbacks(monkeypatch) -> None:
     fetched: list[tuple[str, str | None]] = []
     loaded: dict[str, object] = {}
+    expected = [
+        ("SOIL", "SOIL.L"),
+        ("LOIL", "LOIL.L"),
+        ("3OIL", "3OIL.L"),
+        ("3OIS", "3OIS.L"),
+        ("SNGA", "SNGA.L"),
+        ("LNGA", "LNGA.L"),
+        ("3NGL", "3NGL.L"),
+        ("3NGS", "3NGS.L"),
+        ("BRNT", "BRNT.MI"),
+        ("SBRT", "SBRT.MI"),
+        ("LBRT", "LBRT.L"),
+        ("3BRL", "3BRL.MI"),
+        ("3BRS", "3BRS.MI"),
+    ]
 
     class FakeConnector:
         def __init__(self, **kwargs) -> None:
@@ -1406,21 +1433,53 @@ def test_ingest_etf_metrics_defaults_to_wisdomtree_fallbacks(monkeypatch) -> Non
     result = runner.invoke(cli.app, ["ingest-etf-metrics", "--load"])
 
     assert result.exit_code == 0
-    assert fetched == [
-        ("BRNT", "BRNT.MI"),
-        ("SBRT", "SBRT.MI"),
-        ("LBRT", "LBRT.L"),
-        ("3BRL", "3BRL.MI"),
-        ("3BRS", "3BRS.MI"),
-    ]
-    assert loaded["metrics"] == [
-        "metric-BRNT",
-        "metric-SBRT",
-        "metric-LBRT",
-        "metric-3BRL",
-        "metric-3BRS",
-    ]
-    assert "Fetched 5 ETF metric snapshots" in result.output
+    assert fetched == expected
+    assert loaded["metrics"] == [f"metric-{ticker}" for ticker, _ in expected]
+    assert "Fetched 13 ETF metric snapshots" in result.output
+
+
+def test_ingest_wisdomtree_metrics_fetches_usd_fundlist_rows(monkeypatch) -> None:
+    fetched: list[list[str]] = []
+    loaded: dict[str, object] = {}
+
+    class FakeMetric:
+        def __init__(self, fund_ticker: str) -> None:
+            self.fund_ticker = fund_ticker
+
+    class FakeConnector:
+        def __init__(self, **kwargs) -> None:
+            loaded["connector_kwargs"] = kwargs
+
+        def fetch_metrics(self, *, fund_tickers: list[str]):
+            fetched.append(fund_tickers)
+            return [FakeMetric(ticker) for ticker in fund_tickers[:2]]
+
+    class FakeRepository:
+        @classmethod
+        def from_settings(cls, settings):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            pass
+
+        def upsert_fund_daily_metrics(self, metrics):
+            loaded["metrics"] = metrics
+            return cli.LoadResult(inserted=len(metrics))
+
+    monkeypatch.setattr(cli, "WisdomTreeFundListConnector", FakeConnector)
+    monkeypatch.setattr(cli, "IngestionRepository", FakeRepository)
+
+    result = runner.invoke(cli.app, ["ingest-wisdomtree-metrics", "--load"])
+
+    assert result.exit_code == 0
+    assert fetched
+    assert fetched[0][:4] == ["SOIL", "LOIL", "3OIL", "3OIS"]
+    assert [metric.fund_ticker for metric in loaded["metrics"]] == ["SOIL", "LOIL"]
+    assert "WisdomTree fund-list missing USD rows" in result.output
+    assert "Fetched 2 WisdomTree metric snapshots" in result.output
 
 
 def test_ingest_etf_metrics_fetches_explicit_yahoo_fallback_funds(monkeypatch) -> None:

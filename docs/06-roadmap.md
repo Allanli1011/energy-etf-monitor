@@ -27,14 +27,16 @@ Implemented:
   `fetch-uso-pcf` without `--url` now uses the official USCF API.
 - `ingest-etf-holdings --load` fetches official snapshots for the default ETF universe:
   `USO`, `USL`, `UCO`, `SCO`, `UNG`, `UNL`, `BOIL`, `KOLD`, `UGA`, `BNO`.
+- `ingest-wisdomtree-metrics --load` attempts official WisdomTree Europe fund-list metrics for
+  USD-listed Brent, WTI, and natural gas ETPs.
 - `ingest-etf-metrics --fund ... --load` remains available for explicit Yahoo fallback or
-  cross-checks; without `--fund`, it fetches the configured WisdomTree Brent ETP fallback layer.
+  cross-checks; without `--fund`, it fetches the configured WisdomTree energy ETP fallback layer.
 - Dashboard ETF rows prefer official issuer metrics over Yahoo estimates when both are present
   for the same fund/date.
-- `run-nightly` now performs data ingestion, ETF holdings refresh, fallback ETF metrics, news
-  ingestion, and factor-row construction. The scheduled workflow runs with `--commodity ALL` so
-  every registered commodity page gets a fresh factor row. It does not run prediction or
-  model-health steps.
+- `run-nightly` now performs data ingestion, ETF holdings refresh, WisdomTree fund-list metrics,
+  fallback ETF metrics, news ingestion, and factor-row construction. The scheduled workflow runs
+  with `--commodity ALL` so every registered commodity page gets a fresh factor row. It does not
+  run prediction or model-health steps.
 - GitHub Actions `nightly.yml` follows the data-monitoring path; `monthly-retrain.yml` has been
   removed; `backfill.yml` no longer trains or commits model artifacts.
 
@@ -54,10 +56,12 @@ Issuer coverage:
 
 - USCF: `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`.
 - ProShares: `UCO`, `SCO`, `BOIL`, `KOLD`.
+- WisdomTree fund-list metrics: Brent (`BRNT`, `SBRT`, `LBRT`, `3BRL`, `3BRS`), WTI (`SOIL`,
+  `LOIL`, `3OIL`, `3OIS`), and natural gas (`SNGA`, `LNGA`, `3NGL`, `3NGS`) using same-name USD
+  listings where available.
 - Brent dashboard: covers `BNO`, `BRNT`, `SBRT`, `LBRT`, `3BRL`, and `3BRS`; Brent futures
-  factors use Yahoo `BZ` prices/curve snapshots and CFTC Brent Last Day code `06765T`. WisdomTree
-  Brent ETP daily metrics use Yahoo fallback snapshots while issuer API access remains gated by
-  WisdomTree/DataSpan credentials. EIA-style inventory coverage remains unavailable.
+  factors use Yahoo `BZ` prices/curve snapshots and CFTC Brent Last Day code `06765T`. EIA-style
+  inventory coverage remains unavailable.
 
 Historical ETF backfill:
 
