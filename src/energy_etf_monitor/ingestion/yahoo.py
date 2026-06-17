@@ -14,6 +14,7 @@ CME's settlement pages block CI runner IPs (HTTP 403) and EIA discontinued its f
 """
 
 import contextlib
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
@@ -30,6 +31,7 @@ _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+_USD_FX_SYMBOLS = {"EUR": "EURUSD=X", "GBP": "GBPUSD=X"}
 
 # product code -> (continuous front symbol, monthly contract root)
 PRODUCT_SYMBOLS = {
@@ -224,9 +226,11 @@ class YahooEtfMetricsConnector:
     ) -> None:
         self.raw_store = raw_store
         self.client = client
+        self._fx_cache: dict[str, float] = {}
 
-    def fetch_metric(self, *, fund_ticker: str) -> FundDailyMetric:
+    def fetch_metric(self, *, fund_ticker: str, yahoo_symbol: str | None = None) -> FundDailyMetric:
         fetched_at = datetime.now(UTC)
+        source_symbol = (yahoo_symbol or fund_ticker).upper()
         client = self.client or httpx.Client(
             timeout=30, headers={"User-Agent": _BROWSER_UA}, follow_redirects=True
         )
@@ -240,35 +244,77 @@ class YahooEtfMetricsConnector:
             if not crumb or len(crumb) > 32 or "{" in crumb:
                 raise ValueError(f"Yahoo did not return a usable crumb for {fund_ticker}")
             response = client.get(
-                f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{fund_ticker}",
+                f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{source_symbol}",
                 params={"modules": "price,defaultKeyStatistics", "crumb": crumb},
             )
             response.raise_for_status()
             payload = response.json()
+
+            if self.raw_store:
+                self.raw_store.save_json(
+                    source=self.source,
+                    payload=payload,
+                    fetched_at=fetched_at,
+                    label=f"{fund_ticker.lower()}_{source_symbol.lower()}_metrics",
+                )
+            return _metric_from_quote_summary(
+                payload,
+                fund_ticker=fund_ticker,
+                fetched_at=fetched_at,
+                price_to_usd=lambda price, currency: self._price_to_usd(
+                    price, currency, client
+                ),
+            )
         finally:
             if close_client:
                 client.close()
 
-        if self.raw_store:
-            self.raw_store.save_json(
-                source=self.source, payload=payload, fetched_at=fetched_at,
-                label=f"{fund_ticker.lower()}_metrics",
-            )
-        return _metric_from_quote_summary(payload, fund_ticker=fund_ticker, fetched_at=fetched_at)
+    def _price_to_usd(self, price: float, currency: str | None, client: httpx.Client) -> float:
+        if currency is None or currency.upper() == "USD":
+            return price
+        if currency == "GBp":
+            return (price / 100.0) * self._fx_rate_to_usd("GBP", client)
+        normalized = currency.upper()
+        if normalized in _USD_FX_SYMBOLS:
+            return price * self._fx_rate_to_usd(normalized, client)
+        raise ValueError(f"Unsupported Yahoo ETF quote currency: {currency}")
+
+    def _fx_rate_to_usd(self, currency: str, client: httpx.Client) -> float:
+        if currency in self._fx_cache:
+            return self._fx_cache[currency]
+        symbol = _USD_FX_SYMBOLS[currency]
+        response = client.get(
+            f"{YAHOO_CHART_URL}/{symbol}",
+            params={"interval": "1d", "range": "5d"},
+        )
+        response.raise_for_status()
+        closes = _iter_closes(response.json())
+        if not closes:
+            raise ValueError(f"Yahoo returned no FX closes for {symbol}")
+        rate = closes[-1][1]
+        self._fx_cache[currency] = rate
+        return rate
 
 
 def _metric_from_quote_summary(
-    payload: dict, *, fund_ticker: str, fetched_at: datetime
+    payload: dict,
+    *,
+    fund_ticker: str,
+    fetched_at: datetime,
+    price_to_usd: Callable[[float, str | None], float] | None = None,
 ) -> FundDailyMetric:
     results = (payload.get("quoteSummary") or {}).get("result")
     if not results:
         raise ValueError(f"Yahoo returned no quoteSummary for {fund_ticker}")
     result = results[0]
-    price = (((result.get("price") or {}).get("regularMarketPrice") or {}).get("raw"))
+    price_block = result.get("price") or {}
+    price = ((price_block.get("regularMarketPrice") or {}).get("raw"))
     aum = (((result.get("defaultKeyStatistics") or {}).get("totalAssets") or {}).get("raw"))
     if not price or not aum:
         raise ValueError(f"Yahoo returned no price/AUM for {fund_ticker}")
     price, aum = float(price), float(aum)
+    if price_to_usd is not None:
+        price = price_to_usd(price, price_block.get("currency"))
     return FundDailyMetric(
         source=YahooEtfMetricsConnector.source,
         fund_ticker=fund_ticker.upper(),

@@ -1373,16 +1373,16 @@ def test_model_health_command_scores_and_reports(monkeypatch, tmp_path) -> None:
     assert str(FakeExported.metrics_path) in result.output
 
 
-def test_ingest_etf_metrics_defaults_to_no_officially_covered_fallbacks(monkeypatch) -> None:
-    fetched: list[str] = []
+def test_ingest_etf_metrics_defaults_to_wisdomtree_fallbacks(monkeypatch) -> None:
+    fetched: list[tuple[str, str | None]] = []
     loaded: dict[str, object] = {}
 
     class FakeConnector:
         def __init__(self, **kwargs) -> None:
             loaded["connector_kwargs"] = kwargs
 
-        def fetch_metric(self, *, fund_ticker: str):
-            fetched.append(fund_ticker)
+        def fetch_metric(self, *, fund_ticker: str, yahoo_symbol: str | None = None):
+            fetched.append((fund_ticker, yahoo_symbol))
             return f"metric-{fund_ticker}"
 
     class FakeRepository:
@@ -1406,21 +1406,33 @@ def test_ingest_etf_metrics_defaults_to_no_officially_covered_fallbacks(monkeypa
     result = runner.invoke(cli.app, ["ingest-etf-metrics", "--load"])
 
     assert result.exit_code == 0
-    assert fetched == []
-    assert "metrics" not in loaded
-    assert "Fetched 0 ETF metric snapshots" in result.output
+    assert fetched == [
+        ("BRNT", "BRNT.MI"),
+        ("SBRT", "SBRT.MI"),
+        ("LBRT", "LBRT.L"),
+        ("3BRL", "3BRL.MI"),
+        ("3BRS", "3BRS.MI"),
+    ]
+    assert loaded["metrics"] == [
+        "metric-BRNT",
+        "metric-SBRT",
+        "metric-LBRT",
+        "metric-3BRL",
+        "metric-3BRS",
+    ]
+    assert "Fetched 5 ETF metric snapshots" in result.output
 
 
 def test_ingest_etf_metrics_fetches_explicit_yahoo_fallback_funds(monkeypatch) -> None:
-    fetched: list[str] = []
+    fetched: list[tuple[str, str | None]] = []
     loaded: dict[str, object] = {}
 
     class FakeConnector:
         def __init__(self, **kwargs) -> None:
             loaded["connector_kwargs"] = kwargs
 
-        def fetch_metric(self, *, fund_ticker: str):
-            fetched.append(fund_ticker)
+        def fetch_metric(self, *, fund_ticker: str, yahoo_symbol: str | None = None):
+            fetched.append((fund_ticker, yahoo_symbol))
             return f"metric-{fund_ticker}"
 
     class FakeRepository:
@@ -1447,6 +1459,6 @@ def test_ingest_etf_metrics_fetches_explicit_yahoo_fallback_funds(monkeypatch) -
     )
 
     assert result.exit_code == 0
-    assert fetched == ["OILK", "UCO"]
+    assert fetched == [("OILK", "OILK"), ("UCO", "UCO")]
     assert loaded["metrics"] == ["metric-OILK", "metric-UCO"]
     assert "ETF metric snapshots" in result.output

@@ -7,6 +7,7 @@ from energy_etf_monitor.etfs import (
     default_uscf_holding_tickers,
     default_yahoo_metric_tickers,
     etf_funds_for_commodity,
+    yahoo_metric_source_ticker,
 )
 
 
@@ -38,7 +39,9 @@ def test_brent_etp_registry_includes_requested_products() -> None:
         "3BRS": -3.0,
     }
     assert ETF_FUNDS["BNO"].front_month_roll is True
-    assert ETF_FUNDS["BRNT"].include_in_metric_ingest is False
+    assert ETF_FUNDS["BRNT"].include_in_metric_ingest is True
+    assert yahoo_metric_source_ticker("BRNT") == "BRNT.MI"
+    assert yahoo_metric_source_ticker("3BRS") == "3BRS.MI"
 
 
 def test_dashboard_commodities_adds_etf_only_brent_page() -> None:
@@ -70,7 +73,7 @@ def test_default_source_tickers_route_supported_issuers_to_official_connectors()
         official
     )
     assert "DBO" not in official
-    assert yahoo == ()
+    assert yahoo == ("BRNT", "SBRT", "LBRT", "3BRL", "3BRS")
 
 
 def test_registry_keeps_model_and_dashboard_roles_separate() -> None:

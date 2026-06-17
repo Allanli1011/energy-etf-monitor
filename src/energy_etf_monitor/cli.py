@@ -11,6 +11,7 @@ from energy_etf_monitor.etfs import (
     ETF_FUNDS,
     default_official_holding_tickers,
     default_yahoo_metric_tickers,
+    yahoo_metric_source_ticker,
 )
 from energy_etf_monitor.features.export import export_daily_features_to_parquet
 from energy_etf_monitor.ingestion.base import RawPayloadStore
@@ -619,10 +620,13 @@ def _ingest_yahoo_etf_metric_context(settings: Settings) -> None:
     connector = YahooEtfMetricsConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
     metrics = []
     for ticker in tickers:
+        source_ticker = yahoo_metric_source_ticker(ticker)
         try:
-            metrics.append(connector.fetch_metric(fund_ticker=ticker))
+            metrics.append(
+                connector.fetch_metric(fund_ticker=ticker, yahoo_symbol=source_ticker)
+            )
         except Exception as exc:  # crumb/rate-limit failures should not sink the whole run
-            typer.echo(f"  ! skipped {ticker} - {exc}")
+            typer.echo(f"  ! skipped {ticker} ({source_ticker}) - {exc}")
     if not metrics:
         typer.echo("No fallback ETF metrics loaded.")
         return
@@ -940,10 +944,13 @@ def ingest_etf_metrics(
     connector = YahooEtfMetricsConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
     metrics = []
     for ticker in tickers:
+        source_ticker = yahoo_metric_source_ticker(ticker)
         try:
-            metrics.append(connector.fetch_metric(fund_ticker=ticker))
+            metrics.append(
+                connector.fetch_metric(fund_ticker=ticker, yahoo_symbol=source_ticker)
+            )
         except Exception as exc:  # one fund failing (crumb/rate-limit) must not abort the rest
-            typer.echo(f"  ! skipped {ticker} — {exc}")
+            typer.echo(f"  ! skipped {ticker} ({source_ticker}) - {exc}")
     typer.echo(f"Fetched {len(metrics)} ETF metric snapshots ({', '.join(tickers)}).")
     if load and metrics:
         with IngestionRepository.from_settings(settings) as repository:

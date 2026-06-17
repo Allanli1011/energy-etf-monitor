@@ -14,6 +14,7 @@ class EtfFundConfig:
     strategy_badge: str
     strategy_description: str
     product_code: str | None = None
+    metric_source_ticker: str | None = None
     leverage: float = 1.0
     front_month_roll: bool = False
     include_in_dashboard: bool = True
@@ -157,7 +158,7 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
             "return; useful as a European ETP sentiment layer, not transparent futures holdings."
         ),
         product_code=None,
-        include_in_metric_ingest=False,
+        metric_source_ticker="BRNT.MI",
     ),
     EtfFundConfig(
         ticker="SBRT",
@@ -170,8 +171,8 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
             "flow and Brent-equivalent exposure flow use opposite signs."
         ),
         product_code=None,
+        metric_source_ticker="SBRT.MI",
         leverage=-1.0,
-        include_in_metric_ingest=False,
     ),
     EtfFundConfig(
         ticker="LBRT",
@@ -184,8 +185,8 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
             "Brent exposure; treated as directional notional pressure."
         ),
         product_code=None,
+        metric_source_ticker="LBRT.L",
         leverage=2.0,
-        include_in_metric_ingest=False,
     ),
     EtfFundConfig(
         ticker="3BRL",
@@ -198,8 +199,8 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
             "leveraged directional notional pressure."
         ),
         product_code=None,
+        metric_source_ticker="3BRL.MI",
         leverage=3.0,
-        include_in_metric_ingest=False,
     ),
     EtfFundConfig(
         ticker="3BRS",
@@ -212,8 +213,8 @@ ETF_FUND_LIST: tuple[EtfFundConfig, ...] = (
             "can translate into positive Brent-equivalent flow."
         ),
         product_code=None,
+        metric_source_ticker="3BRS.MI",
         leverage=-3.0,
-        include_in_metric_ingest=False,
     ),
 )
 
@@ -306,6 +307,15 @@ def default_yahoo_metric_tickers(
         and fund.ticker not in official_tickers
         and fund.include_in_metric_ingest
     )
+
+
+def yahoo_metric_source_ticker(ticker: str) -> str:
+    """Yahoo symbol used to fetch fallback metrics for a dashboard ticker."""
+
+    fund = ETF_FUNDS.get(ticker.upper())
+    if fund is None or fund.metric_source_ticker is None:
+        return ticker.upper()
+    return fund.metric_source_ticker
 
 
 def _allowed_commodities(commodities: tuple[str, ...] | None) -> set[str]:

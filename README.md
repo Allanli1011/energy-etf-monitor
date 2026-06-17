@@ -30,7 +30,7 @@ path are data-monitoring first.
 |---|---|---|
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`; raw payloads saved before parsing. |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | Official page HTML for `UCO`, `SCO`, `BOIL`, `KOLD`; holdings tables include exposure weights and contract months. |
-| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback for funds without an issuer connector or for cross-checks; no default dashboard ETF currently depends on it. |
+| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback for funds without an issuer connector or for cross-checks; WisdomTree Brent ETPs use mapped Yahoo symbols until issuer API credentials are available. |
 | Futures curves | Yahoo Finance futures feed | Daily curve rows by commodity product code, including Brent `BZ=F` / `BZ*.NYM`. |
 | Inventory | EIA API | Crude, Cushing, natural gas, and product inventory series; Brent has no EIA-style inventory series configured. |
 | Macro | FRED API | USD index, real yields, WTI spot, retail gasoline. |
@@ -69,10 +69,11 @@ uv run energy-etf-monitor ingest-etf-holdings --fund USO --load
 Fetch explicit Yahoo ETF fallback metric context:
 
 ```bash
-uv run energy-etf-monitor ingest-etf-metrics --fund OILK --load
+uv run energy-etf-monitor ingest-etf-metrics --fund BRNT --load
 ```
 
-Without `--fund`, this only runs for registry products that do not yet have an issuer connector.
+Without `--fund`, this runs for registry products that do not yet have an issuer connector,
+currently the WisdomTree Brent ETP layer.
 
 Fetch the rest of the monitoring backbone:
 
@@ -115,7 +116,9 @@ The dashboard separates official issuer data from fallback context:
 - `UCO`, `SCO`, `BOIL`, and `KOLD` use official ProShares page NAV, net assets, and holdings
   tables.
 - WisdomTree Brent ETC/ETP products are shown on the Brent page as a European ETP sentiment layer;
-  they are not default-ingested until a reliable issuer/Yahoo-symbol connector is added.
+  they use Yahoo fallback daily AUM/price snapshots with mapped source symbols (`BRNT.MI`,
+  `SBRT.MI`, `LBRT.L`, `3BRL.MI`, `3BRS.MI`). This is not issuer creation/redemption data; flow is
+  a going-forward share-change proxy.
 - Brent futures price/curve context uses Yahoo's free `BZ` futures symbols, and Brent positioning
   uses the CFTC Brent Last Day COT market code `06765T`; exchange-official ICE EOD settlement
   packages remain a paid upgrade path.

@@ -13,7 +13,7 @@ A free backbone is enough for the non-model monitoring MVP. Paid sources remain 
 | Futures curve | Yahoo Finance futures feed | CL, NG, RB, and BZ listed month snapshots where available | Daily |
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings stack via ALPS MarketingAPI | Fetch `api_key.php` from USCF, then call `dailyprice/{ticker}` and `holding/{ticker}/full` with the bearer token | Daily, T+1 |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | `UCO`, `SCO`, `BOIL`, `KOLD` HTML pages with price/snapshot blocks and holdings tables | Daily, T+1 |
-| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback/cross-check for products without issuer holdings connectors | Daily |
+| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback/cross-check for products without issuer holdings connectors; WisdomTree Brent ETPs use mapped Yahoo listing symbols | Daily |
 | News / sentiment | GDELT 2.0 DOC API, RSS, optional Marketaux | Free headline/event ingestion and rule-based classification | Intraday |
 | Sector flow context | ICI weekly ETF net issuance | Commodity ETFs as one aggregate bucket | Weekly |
 
@@ -58,6 +58,25 @@ The connector saves the raw HTML and parses the price as-of date, NAV, net asset
 table. ProShares does not expose daily gross creation/redemption units on these pages, so flow is
 derived from same-source shares outstanding deltas.
 
+## WisdomTree Notes
+
+WisdomTree Europe product pages expose current NAV, total fund AUM, and shares outstanding in the
+rendered product page, and the DataSpan-backed fund-details API shape is known to include `nav`,
+`sharesOutstanding`, and `aum`. That API requires an `x-wt-dataspan-key`, so it is not enabled as a
+free issuer connector.
+
+The Brent dashboard therefore uses Yahoo fallback snapshots for the WisdomTree Brent ETP layer:
+
+- `BRNT` from `BRNT.MI`
+- `SBRT` from `SBRT.MI`
+- `LBRT` from `LBRT.L`
+- `3BRL` from `3BRL.MI`
+- `3BRS` from `3BRS.MI`
+
+Yahoo reports the fund AUM field at fund level while some listings trade in EUR. The connector
+converts the listing price to USD before deriving approximate shares outstanding. Flow is then a
+going-forward share-change proxy, not disclosed gross creation/redemption activity.
+
 ## Paid Upgrade Slots
 
 | Need | Source | Tier |
@@ -75,6 +94,8 @@ derived from same-source shares outstanding deltas.
 - USCF current public endpoints expose latest holdings, not a clean historical holdings archive.
   Going-forward raw JSON capture is therefore important.
 - Yahoo ETF metric data is a fallback estimate and should not override official issuer data.
+- WisdomTree issuer NAV/AUM is visible on product pages, but automated issuer API access requires a
+  DataSpan key; the free dashboard path uses Yahoo fallback snapshots instead.
 - Yahoo Brent futures data is useful for free dashboard context, but it is not the exchange-official
   ICE end-of-day settlement package.
 - ETF.com and ETFDB fund-flow pages are unreliable for automated free ingestion; prefer issuer
