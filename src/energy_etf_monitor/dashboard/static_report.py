@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from energy_etf_monitor.commodities import COMMODITIES
 from energy_etf_monitor.config import Settings
 from energy_etf_monitor.dashboard.data import (
+    etf_exposure_flow_chart,
     etf_exposure_rows,
     etf_flow_chart,
     etf_flow_rows,
@@ -214,6 +215,7 @@ def render_dashboard_html(
         "flow": _flow_section(commodity, fund_metrics),
         "etf": {
             "flow": etf_flow_chart(fund_metrics, funds=etf_funds),
+            "exposure_flow": etf_exposure_flow_chart(fund_metrics, funds=etf_funds),
             "rows": etf_flow_rows(fund_metrics, funds=etf_funds),
             "summary": etf_strategy_summary_rows(fund_metrics, funds=etf_funds),
             "health": etf_source_health_rows(
@@ -404,12 +406,9 @@ function chartCard(title, explain){
 const VBW=980, PADL=58, PLOTW=864, XH_Y1=14, XH_Y2=230;
 
 function renderCharts(){
-  // ETF creation / redemption by fund (going-forward; sparse early on)
-  if(DASH.etf && DASH.etf.flow && DASH.etf.flow.dates && DASH.etf.flow.dates.length){
-    const fl=clipMulti(DASH.etf.flow.dates,DASH.etf.flow.series,RANGE);
-    setChart(DASH.etf.flow.title, fl.dates,
-      fl.series.map((s,i)=>({name:s.name,color:PALETTE[i%PALETTE.length],values:s.values,axis:0})));
-  }
+  // ETF cash flow and commodity-equivalent exposure flow use different sign conventions.
+  renderEtfChart(DASH.etf && DASH.etf.flow);
+  renderEtfChart(DASH.etf && DASH.etf.exposure_flow);
   // Front-month price
   const price=clip(DASH.price,RANGE);
   setChart(DASH.price.title, price.dates, [{name:DASH.price.yLabel,color:PALETTE[0],values:price.values,axis:0}]);
@@ -422,6 +421,12 @@ function renderCharts(){
   setChart("Inventory & seasonal surprise", inv.dates, [
     {name:"Inventory level",color:PALETTE[1],values:inv.values,axis:0},
     {name:"Seasonal surprise (z)",color:PALETTE[3],values:alignTo(inv.dates,sur),axis:1}]);
+}
+function renderEtfChart(flow){
+  if(!flow || !flow.dates || !flow.dates.length) return;
+  const fl=clipMulti(flow.dates,flow.series,RANGE);
+  setChart(flow.title, fl.dates,
+    fl.series.map((s,i)=>({name:s.name,color:PALETTE[i%PALETTE.length],values:s.values,axis:0})));
 }
 function clipMulti(dates, series, months){
   if(!months || !dates.length) return {dates, series};
@@ -474,16 +479,16 @@ function render(){
   const roll = d.roll;
   const alert = `<div class="alert ${roll.level}">⏱ <b>Roll watch:</b> ${esc(roll.message)} `
       + `<span style="opacity:.8">Front-month funds (e.g. ${esc((d.funds.find(f=>f.front)||{}).ticker||'')}) sell the expiring contract and buy the next during this window; large fund AUM vs. open interest can move the front-of-curve spread.</span></div>`;
-  const etf = d.etf || {rows:[],summary:[],exposure:[],flow:{series:[]}};
+  const etf = d.etf || {rows:[],summary:[],exposure:[],flow:{series:[]},exposure_flow:{series:[]}};
   const totalAum = (etf.rows||[]).reduce((s,r)=>s+(r.latest_aum_usd||0),0);
   const totalFlow = (etf.rows||[]).reduce((s,r)=>s+(r.daily_flow_usd||0),0);
-  const frontFlow = (etf.rows||[]).filter(r=>r.front_month_roll).reduce((s,r)=>s+(r.daily_flow_usd||0),0);
-  const leveragedFlow = (etf.rows||[]).filter(r=>Math.abs(r.leverage||1)>1).reduce((s,r)=>s+(r.daily_flow_usd||0),0);
+  const totalExposureFlow = (etf.rows||[]).reduce((s,r)=>s+(r.exposure_flow_usd||0),0);
+  const leveragedExposureFlow = (etf.rows||[]).filter(r=>Math.abs(r.leverage||1)>1).reduce((s,r)=>s+(r.exposure_flow_usd||0),0);
   const metricCards = `<div class="metricgrid">
     <div class="metric"><div class="k">covered AUM</div><div class="v">${fmt(totalAum)}</div></div>
-    <div class="metric"><div class="k">daily flow</div><div class="v">${fmt(totalFlow)}</div></div>
-    <div class="metric"><div class="k">front-month flow</div><div class="v">${fmt(frontFlow)}</div></div>
-    <div class="metric"><div class="k">leveraged flow</div><div class="v">${fmt(leveragedFlow)}</div></div>
+    <div class="metric"><div class="k">ETF cash flow</div><div class="v">${fmt(totalFlow)}</div></div>
+    <div class="metric"><div class="k">${esc(d.commodity)} exposure flow</div><div class="v">${fmt(totalExposureFlow)}</div></div>
+    <div class="metric"><div class="k">leveraged exposure flow</div><div class="v">${fmt(leveragedExposureFlow)}</div></div>
   </div>`;
   const healthRows = (etf.health||[]).length ? etf.health.map(r=>`<tr>`
       +`<td>${esc(r.ticker)}</td><td>${esc(r.issuer)}</td>`
@@ -497,14 +502,14 @@ function render(){
       +`<td>${esc(r.ticker)}</td><td>${esc(r.issuer)}</td><td>${esc(r.strategy)}</td>`
       +`<td class="num">${esc(r.leverage)}</td><td>${esc(r.latest_date||"")}</td>`
       +`<td class="num">${fmtMaybe(r.latest_aum_usd)}</td><td class="num">${fmtMaybe(r.daily_flow_usd)}</td>`
-      +`<td class="num">${pctMaybe(r.flow_pct_aum)}</td><td class="num">${fmtMaybe(r.flow_5d_usd)}</td>`
+      +`<td class="num">${fmtMaybe(r.exposure_flow_usd)}</td><td class="num">${pctMaybe(r.flow_pct_aum)}</td><td class="num">${fmtMaybe(r.flow_5d_usd)}</td>`
       +`<td>${r.model_input?"yes":"no"}</td></tr>`).join("")
-      : `<tr><td colspan="10" class="empty">No ETF metric snapshots yet.</td></tr>`;
+      : `<tr><td colspan="11" class="empty">No ETF metric snapshots yet.</td></tr>`;
   const summaryRows = (etf.summary||[]).length ? etf.summary.map(r=>`<tr>`
       +`<td>${esc(r.strategy)}</td><td>${esc(r.funds)}</td><td class="num">${esc(r.fund_count)}</td>`
       +`<td class="num">${fmtMaybe(r.aum_usd)}</td><td class="num">${fmtMaybe(r.daily_flow_usd)}</td>`
-      +`<td class="num">${fmtMaybe(r.flow_5d_usd)}</td></tr>`).join("")
-      : `<tr><td colspan="6" class="empty">No strategy summary yet.</td></tr>`;
+      +`<td class="num">${fmtMaybe(r.exposure_flow_usd)}</td><td class="num">${fmtMaybe(r.flow_5d_usd)}</td></tr>`).join("")
+      : `<tr><td colspan="7" class="empty">No strategy summary yet.</td></tr>`;
   const exposureRows = (etf.exposure||[]).length ? etf.exposure.map(r=>`<tr>`
       +`<td>${esc(r.ticker)}</td><td>${esc(r.contract_month)}</td><td>${esc(r.holding_name)}</td>`
       +`<td class="num">${fmtMaybe(r.quantity)}</td><td class="num">${fmtMaybe(r.market_value_usd)}</td>`
@@ -533,13 +538,14 @@ function render(){
     ${metricCards}
     <h2>ETF source health</h2>
     <table><thead><tr><th>fund</th><th>issuer</th><th>status</th><th>metric source</th><th>metric date</th><th>holdings date</th><th>holding rows</th><th>contract rows</th><th>note</th></tr></thead><tbody>${healthRows}</tbody></table>
-    <table><thead><tr><th>fund</th><th>issuer</th><th>strategy</th><th>lev</th><th>date</th><th>AUM</th><th>daily flow</th><th>flow/AUM</th><th>5d flow</th><th>model</th></tr></thead><tbody>${etfRows}</tbody></table>
-    <table><thead><tr><th>strategy</th><th>funds</th><th>count</th><th>AUM</th><th>daily flow</th><th>5d flow</th></tr></thead><tbody>${summaryRows}</tbody></table>
+    <table><thead><tr><th>fund</th><th>issuer</th><th>strategy</th><th>lev</th><th>date</th><th>AUM</th><th>ETF cash flow</th><th>${esc(d.commodity)} exposure flow</th><th>flow/AUM</th><th>5d flow</th><th>model</th></tr></thead><tbody>${etfRows}</tbody></table>
+    <table><thead><tr><th>strategy</th><th>funds</th><th>count</th><th>AUM</th><th>ETF cash flow</th><th>${esc(d.commodity)} exposure flow</th><th>5d flow</th></tr></thead><tbody>${summaryRows}</tbody></table>
     <h2>ETF exposure by contract month</h2>
     <table><thead><tr><th>fund</th><th>contract month</th><th>holding</th><th>quantity</th><th>market value</th><th>% NAV</th></tr></thead><tbody>${exposureRows}</tbody></table>
     <div class="ranges"><b>Time range (applies to all charts):</b> ${rangeBtns}</div>
     <div id="charts">
       ${etf.flow && etf.flow.series && etf.flow.series.length ? chartCard(etf.flow.title, etf.flow.explain) : ""}
+      ${etf.exposure_flow && etf.exposure_flow.series && etf.exposure_flow.series.length ? chartCard(etf.exposure_flow.title, etf.exposure_flow.explain) : ""}
       ${chartCard(d.price.title, d.price.explain)}
       ${chartCard(d.cot.title, d.cot.explain)}
       ${chartCard("Inventory & seasonal surprise", "EIA inventory level (left axis) vs. its seasonal surprise — how far the latest level sits from the typical level for this time of year, in standard deviations (right axis). The two are on separate axes because their scales differ by orders of magnitude. A large positive surprise (more inventory than seasonal norm) is generally bearish for price; a negative surprise is bullish.")}

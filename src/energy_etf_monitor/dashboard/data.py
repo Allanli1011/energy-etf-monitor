@@ -146,6 +146,8 @@ def etf_flow_rows(
             continue
         latest = fund_metrics[-1]
         daily_flow = latest.implied_flow_usd
+        exposure_flow = _exposure_adjusted_flow(daily_flow, fund)
+        exposure_flow_5d = _exposure_adjusted_flow(_rolling_flow(fund_metrics, 5), fund)
         rows.append(
             {
                 "ticker": fund.ticker,
@@ -155,8 +157,10 @@ def etf_flow_rows(
                 "latest_date": latest.report_date.isoformat(),
                 "latest_aum_usd": round(latest.total_net_assets),
                 "daily_flow_usd": _round_optional(daily_flow),
+                "exposure_flow_usd": _round_optional(exposure_flow),
                 "flow_pct_aum": _flow_pct(daily_flow, latest.total_net_assets),
                 "flow_5d_usd": _rolling_flow(fund_metrics, 5),
+                "exposure_flow_5d_usd": _round_optional(exposure_flow_5d),
                 "flow_20d_usd": _rolling_flow(fund_metrics, 20),
                 "front_month_roll": fund.front_month_roll,
                 "model_input": fund.include_in_model,
@@ -185,7 +189,13 @@ def etf_strategy_summary_rows(
                 "fund_count": len(rows),
                 "aum_usd": sum(int(row["latest_aum_usd"]) for row in rows),
                 "daily_flow_usd": sum(float(row["daily_flow_usd"] or 0.0) for row in rows),
+                "exposure_flow_usd": sum(
+                    float(row["exposure_flow_usd"] or 0.0) for row in rows
+                ),
                 "flow_5d_usd": sum(float(row["flow_5d_usd"] or 0.0) for row in rows),
+                "exposure_flow_5d_usd": sum(
+                    float(row["exposure_flow_5d_usd"] or 0.0) for row in rows
+                ),
             }
         )
     out.sort(key=lambda row: abs(float(row["daily_flow_usd"])), reverse=True)
@@ -329,6 +339,50 @@ def etf_flow_chart(
     }
 
 
+def etf_exposure_flow_chart(
+    metrics: Sequence[FundDailyMetric],
+    *,
+    funds: Sequence[EtfFundConfig],
+) -> dict[str, object]:
+    """Multi-fund commodity-equivalent flow chart data in millions of dollars."""
+
+    commodity = funds[0].commodity if funds else "COMMODITY"
+    by_ticker = _metrics_by_ticker(metrics)
+    dates = sorted({metric.report_date for metric in metrics})
+    series = []
+    for fund in funds:
+        fund_metrics = {metric.report_date: metric for metric in by_ticker.get(fund.ticker, [])}
+        values = [
+            (
+                None
+                if date_value not in fund_metrics
+                or fund_metrics[date_value].implied_flow_usd is None
+                else round(
+                    float(fund_metrics[date_value].implied_flow_usd)
+                    * fund.leverage
+                    / 1_000_000,
+                    3,
+                )
+            )
+            for date_value in dates
+        ]
+        if any(value is not None for value in values):
+            series.append({"name": fund.ticker, "values": values})
+    return {
+        "dates": [date_value.isoformat() for date_value in dates],
+        "series": series,
+        "title": f"{commodity}-equivalent futures exposure flow by fund",
+        "yLabel": f"{commodity}-equivalent flow ($M)",
+        "explain": (
+            "ETF cash creation/redemption is converted to commodity-equivalent notional by "
+            "multiplying by each fund's target leverage. Leveraged funds scale the notional; "
+            "inverse funds flip sign, so redemptions from an inverse ETF can be positive "
+            f"{commodity} exposure flow. Treat leveraged/inverse products as directional "
+            "notional pressure because some exposure may be implemented with swaps."
+        ),
+    }
+
+
 def _optional_float(value: float | None) -> float | None:
     return None if value is None else float(value)
 
@@ -468,6 +522,15 @@ def _flow_pct(flow: float | None, aum: float) -> float | None:
     if flow is None or not aum:
         return None
     return round(flow / aum, 4)
+
+
+def _exposure_adjusted_flow(
+    flow: float | int | None,
+    fund: EtfFundConfig,
+) -> float | None:
+    if flow is None:
+        return None
+    return float(flow) * fund.leverage
 
 
 def _round_optional(value: float | None, *, digits: int = 0) -> float | int | None:

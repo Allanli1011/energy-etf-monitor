@@ -103,6 +103,7 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
             _metric("USO", date(2026, 6, 11), 3_000_000),
             _metric("USO", date(2026, 6, 12), 4_000_000),
             _metric("USL", date(2026, 6, 12), -1_000_000),
+            _metric("SCO", date(2026, 6, 12), -10_000_000),
         ],
         fund_holdings=[_holding("USO", date(2026, 7, 1))],
         cot_positions=[_cot(day) for day in days],
@@ -127,6 +128,8 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
     assert "OPEC cuts output" in page
     assert "<script>" in page  # interactive (vanilla JS, self-contained)
     assert "creation / redemption" in page.lower()  # ETF flow section present
+    assert "WTI-equivalent futures exposure flow by fund" in page
+    assert '"name": "SCO", "values": [null, 20.0]' in page
     assert '"series": [{"name": "USO", "values": [3.0, 4.0]}' in page
     # COT is now broken out by disaggregated trader type, not a single swap-dealer net.
     assert "Positioning by trader type" in page

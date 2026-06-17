@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 
 from energy_etf_monitor.dashboard.data import (
     PRICE_AND_CURVE_COLUMNS,
+    etf_exposure_flow_chart,
     etf_exposure_rows,
     etf_flow_chart,
     etf_flow_rows,
@@ -316,3 +317,20 @@ def test_etf_flow_chart_aligns_multiple_funds_by_date() -> None:
     assert chart["dates"] == ["2026-06-10", "2026-06-11"]
     assert chart["series"][0] == {"name": "USO", "values": [5.0, 6.0]}
     assert chart["series"][1] == {"name": "USL", "values": [None, -1.0]}
+
+
+def test_etf_exposure_flow_chart_applies_leverage_and_inverse_sign() -> None:
+    funds = etf_funds_for_commodity("WTI")
+    metrics = [
+        _metric("SCO", date(2026, 6, 11), aum=100_000_000, flow=-10_000_000),
+        _metric("UCO", date(2026, 6, 11), aum=300_000_000, flow=5_000_000),
+    ]
+
+    chart = etf_exposure_flow_chart(metrics, funds=funds)
+
+    sco = next(series for series in chart["series"] if series["name"] == "SCO")
+    uco = next(series for series in chart["series"] if series["name"] == "UCO")
+    assert chart["title"] == "WTI-equivalent futures exposure flow by fund"
+    assert sco["values"] == [20.0]
+    assert uco["values"] == [10.0]
+    assert "inverse funds flip sign" in chart["explain"]
