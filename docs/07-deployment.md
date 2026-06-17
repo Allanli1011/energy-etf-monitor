@@ -6,7 +6,8 @@ it does not train or run prediction models.
 ## Workflows
 
 - `.github/workflows/ci.yml`: lint + tests on push, pull request, and manual dispatch.
-- `.github/workflows/nightly.yml`: scheduled weekday monitoring run at 22:00 UTC.
+- `.github/workflows/nightly.yml`: scheduled monitoring run at 03:00 UTC Tuesday-Saturday,
+  late in the prior US trading evening so official ETF issuer files have more time to publish.
 - `.github/workflows/backfill.yml`: manual source/factor backfill, no model training.
 - `.github/workflows/pages.yml`: builds and deploys the static dashboard to GitHub Pages.
 

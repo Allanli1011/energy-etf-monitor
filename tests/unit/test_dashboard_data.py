@@ -317,6 +317,7 @@ def test_etf_flow_chart_aligns_multiple_funds_by_date() -> None:
     assert chart["dates"] == ["2026-06-10", "2026-06-11"]
     assert chart["series"][0] == {"name": "USO", "values": [5.0, 6.0]}
     assert chart["series"][1] == {"name": "USL", "values": [None, -1.0]}
+    assert chart["net"] == {"name": "Net ETF cash flow", "values": [5.0, 5.0]}
 
 
 def test_etf_exposure_flow_chart_applies_leverage_and_inverse_sign() -> None:
@@ -333,4 +334,5 @@ def test_etf_exposure_flow_chart_applies_leverage_and_inverse_sign() -> None:
     assert chart["title"] == "WTI-equivalent futures exposure flow by fund"
     assert sco["values"] == [20.0]
     assert uco["values"] == [10.0]
+    assert chart["net"] == {"name": "Net WTI-equivalent flow", "values": [30.0]}
     assert "inverse funds flip sign" in chart["explain"]

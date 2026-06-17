@@ -329,6 +329,10 @@ def etf_flow_chart(
     return {
         "dates": [date_value.isoformat() for date_value in dates],
         "series": series,
+        "net": {
+            "name": "Net ETF cash flow",
+            "values": _net_flow_values(series),
+        },
         "title": "ETF creation / redemption by fund",
         "yLabel": "Daily flow ($M)",
         "explain": (
@@ -371,6 +375,10 @@ def etf_exposure_flow_chart(
     return {
         "dates": [date_value.isoformat() for date_value in dates],
         "series": series,
+        "net": {
+            "name": f"Net {commodity}-equivalent flow",
+            "values": _net_flow_values(series),
+        },
         "title": f"{commodity}-equivalent futures exposure flow by fund",
         "yLabel": f"{commodity}-equivalent flow ($M)",
         "explain": (
@@ -522,6 +530,21 @@ def _flow_pct(flow: float | None, aum: float) -> float | None:
     if flow is None or not aum:
         return None
     return round(flow / aum, 4)
+
+
+def _net_flow_values(series: Sequence[dict[str, object]]) -> list[float | None]:
+    if not series:
+        return []
+    length = max(len(item["values"]) for item in series)
+    values: list[float | None] = []
+    for index in range(length):
+        day_values = [
+            float(item["values"][index])
+            for item in series
+            if item["values"][index] is not None
+        ]
+        values.append(round(sum(day_values), 3) if day_values else None)
+    return values
 
 
 def _exposure_adjusted_flow(

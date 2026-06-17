@@ -130,6 +130,9 @@ def test_render_dashboard_is_interactive_factor_view() -> None:
     assert "creation / redemption" in page.lower()  # ETF flow section present
     assert "WTI-equivalent futures exposure flow by fund" in page
     assert '"name": "SCO", "values": [null, 20.0]' in page
+    assert '"net": {"name": "Net ETF cash flow", "values": [3.0, -7.0]}' in page
+    assert "stackedBarLineSVG" in page
+    assert "<rect" in page
     assert '"series": [{"name": "USO", "values": [3.0, 4.0]}' in page
     # COT is now broken out by disaggregated trader type, not a single swap-dealer net.
     assert "Positioning by trader type" in page

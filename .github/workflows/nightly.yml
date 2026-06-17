@@ -2,9 +2,10 @@ name: nightly
 
 on:
   schedule:
-    # Weekdays at 22:00 UTC — after the US energy-futures settlement window.
-    # EIA (Wed) and COT (Fri) releases are picked up on their respective days.
-    - cron: "0 22 * * 1-5"
+    # Tue-Sat at 03:00 UTC — later in the prior US trading evening, giving official ETF issuer
+    # holdings/creation-redemption files more time to publish after the settlement window.
+    # EIA (Wed) and COT (Fri) releases are picked up on their respective US release days.
+    - cron: "0 3 * * 2-6"
   workflow_dispatch: {}
 
 permissions:

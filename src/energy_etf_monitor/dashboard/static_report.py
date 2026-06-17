@@ -396,6 +396,56 @@ function chartSVG(dates, series){
   const legend='<div class="legend">'+series.map(s=>`<span class="lg"><i style="background:${s.color}"></i>${esc(s.name)}${s.axis===1?" (right)":""}</span>`).join("")+"</div>";
   return svg+legend;
 }
+function stackedBarLineSVG(dates, series, net){
+  const W=980,H=260,padL=58,padR=58,padT=14,padB=30;
+  const n=Math.max(dates.length,1), plotW=W-padL-padR, plotH=H-padT-padB;
+  const posTotals=[], negTotals=[];
+  for(let i=0;i<dates.length;i++){
+    let pos=0, neg=0;
+    for(const s of series){const v=s.values[i]; if(v==null)continue; if(v>=0)pos+=v; else neg+=v;}
+    posTotals.push(pos); negTotals.push(neg);
+  }
+  const leftRaw=extent(posTotals.concat(negTotals));
+  if(!leftRaw) return '<div class="empty">no data in this range</div>';
+  const left=[Math.min(0,leftRaw[0]), Math.max(0,leftRaw[1])];
+  if(left[0]===left[1]){left[0]-=1;left[1]+=1;}
+  const right=extent(net && net.values ? net.values : []);
+  const x=i=>dates.length<2?padL+plotW/2:padL+plotW*(i/(dates.length-1));
+  const yOf=(v,ext)=>{const[a,b]=ext;return padT+plotH*(1-(v-a)/(b-a));};
+  const barW=Math.max(4,Math.min(30,plotW/(dates.length||1)*0.55));
+  let svg=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+  for(let g=0; g<=3; g++){const yy=padT+plotH*g/3; const val=left[1]-(left[1]-left[0])*g/3;
+    svg+=`<line class="grid" x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}"/>`;
+    svg+=`<text class="axlbl" x="${padL-6}" y="${yy+3}" text-anchor="end">${fmt(val)}</text>`;}
+  if(right){for(let g=0; g<=3; g++){const yy=padT+plotH*g/3; const val=right[1]-(right[1]-right[0])*g/3;
+    svg+=`<text class="axlbl" x="${W-padR+6}" y="${yy+3}" text-anchor="start">${fmt(val)}</text>`;}}
+  const ticks=Math.min(5,dates.length||1);
+  for(let t=0;t<ticks;t++){const i=Math.round(t*((dates.length||1)-1)/(ticks-1||1)); const dt=dates[i]||"";
+    svg+=`<text class="axlbl" x="${x(i)}" y="${H-padB+16}" text-anchor="middle">${dt.slice(0,7)}</text>`;}
+  const zeroY=yOf(0,left);
+  svg+=`<line class="axis" x1="${padL}" y1="${zeroY}" x2="${W-padR}" y2="${zeroY}"/>`;
+  for(let i=0;i<dates.length;i++){
+    let posBase=0, negBase=0;
+    for(const s of series){const v=s.values[i]; if(v==null || v===0)continue;
+      let y0,y1;
+      if(v>0){y0=yOf(posBase,left); posBase+=v; y1=yOf(posBase,left);}
+      else {y0=yOf(negBase,left); negBase+=v; y1=yOf(negBase,left);}
+      const y=Math.min(y0,y1), h=Math.max(1,Math.abs(y1-y0));
+      svg+=`<rect x="${(x(i)-barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${s.color}" opacity=".88"/>`;
+    }
+  }
+  if(right && net && net.values){
+    let pts="";
+    for(let i=0;i<dates.length;i++){const v=net.values[i]; if(v==null)continue; pts+=`${x(i).toFixed(1)},${yOf(v,right).toFixed(1)} `;}
+    if(pts.trim()) svg+=`<polyline fill="none" stroke="${net.color}" stroke-width="2.2" points="${pts.trim()}"/>`;
+    for(let i=0;i<dates.length;i++){const v=net.values[i]; if(v==null)continue;
+      svg+=`<circle cx="${x(i).toFixed(1)}" cy="${yOf(v,right).toFixed(1)}" r="2.5" fill="${net.color}"/>`;}
+  }
+  svg+="</svg>";
+  const legendItems=series.concat(net?[net]:[]);
+  const legend='<div class="legend">'+legendItems.map(s=>`<span class="lg"><i style="background:${s.color}"></i>${esc(s.name)}${s.axis===1?" (right)":""}</span>`).join("")+"</div>";
+  return svg+legend;
+}
 function fmt(v){const a=Math.abs(v); if(a>=1e9)return (v/1e9).toFixed(2)+"B"; if(a>=1e6)return (v/1e6).toFixed(2)+"M"; if(a>=1e3)return (v/1e3).toFixed(1)+"k"; return (Math.round(v*100)/100).toString();}
 
 function chartCard(title, explain){
@@ -424,9 +474,21 @@ function renderCharts(){
 }
 function renderEtfChart(flow){
   if(!flow || !flow.dates || !flow.dates.length) return;
-  const fl=clipMulti(flow.dates,flow.series,RANGE);
-  setChart(flow.title, fl.dates,
-    fl.series.map((s,i)=>({name:s.name,color:PALETTE[i%PALETTE.length],values:s.values,axis:0})));
+  const fl=clipFlow(flow,RANGE);
+  const series=fl.series.map((s,i)=>({name:s.name,color:PALETTE[i%PALETTE.length],values:s.values,axis:0}));
+  const net=fl.net?{name:fl.net.name,color:"#f0f6fc",values:fl.net.values,axis:1}:null;
+  setStackedFlowChart(flow.title, fl.dates, series, net);
+}
+function clipFlow(flow, months){
+  if(!months || !flow.dates.length) return flow;
+  const last=new Date(flow.dates[flow.dates.length-1]+"T00:00:00Z"); const cut=new Date(last); cut.setUTCMonth(cut.getUTCMonth()-months);
+  const keep=[]; for(let i=0;i<flow.dates.length;i++) if(new Date(flow.dates[i]+"T00:00:00Z")>=cut) keep.push(i);
+  return {
+    ...flow,
+    dates:keep.map(i=>flow.dates[i]),
+    series:flow.series.map(s=>({...s,values:keep.map(i=>s.values[i])})),
+    net:flow.net?{...flow.net,values:keep.map(i=>flow.net.values[i])}:null
+  };
 }
 function clipMulti(dates, series, months){
   if(!months || !dates.length) return {dates, series};
@@ -440,6 +502,13 @@ function setChart(title, dates, series){
   if(!dates || !dates.length){ el.innerHTML='<div class="empty">no data in this range</div>'; el._meta=null; return; }
   el.innerHTML = chartSVG(dates, series) + '<div class="tip" style="display:none"></div>';
   el._meta = {dates, series};
+  attachHover(el);
+}
+function setStackedFlowChart(title, dates, series, net){
+  const el=document.querySelector(`.chart[data-chart="${cssEsc(title)}"]`); if(!el) return;
+  if(!dates || !dates.length){ el.innerHTML='<div class="empty">no data in this range</div>'; el._meta=null; return; }
+  el.innerHTML = stackedBarLineSVG(dates, series, net) + '<div class="tip" style="display:none"></div>';
+  el._meta = {dates, series: net ? series.concat([net]) : series};
   attachHover(el);
 }
 function attachHover(el){
