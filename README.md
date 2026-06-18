@@ -30,8 +30,8 @@ path are data-monitoring first.
 |---|---|---|
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`; raw payloads saved before parsing. |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | Official page HTML for `UCO`, `SCO`, `BOIL`, `KOLD`; holdings tables include exposure weights and contract months. |
-| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | Official product-list JSON for USD listings of WisdomTree Brent, WTI, and natural gas ETPs; the connector falls back to browser-TLS fetching before Yahoo fallback. |
-| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback for funds without an issuer connector or for cross-checks; never overrides official issuer/fund-list rows. |
+| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | Official product-list JSON for USD listings of WisdomTree Brent, WTI, and natural gas ETPs; the connector uses browser-TLS fetching against the official endpoint. |
+| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit manual cross-check only; not auto-loaded for WisdomTree and never used in WisdomTree dashboard rows. |
 | Futures curves | Yahoo Finance futures feed | Daily curve rows by commodity product code, including Brent `BZ=F` / `BZ*.NYM`. |
 | Inventory | EIA API | Crude, Cushing, natural gas, and product inventory series; Brent has no EIA-style inventory series configured. |
 | Macro | FRED API | USD index, real yields, WTI spot, retail gasoline. |
@@ -67,7 +67,7 @@ For a single fund:
 uv run energy-etf-monitor ingest-etf-holdings --fund USO --load
 ```
 
-Fetch explicit Yahoo ETF fallback metric context:
+Fetch explicit Yahoo ETF cross-check metric context:
 
 ```bash
 uv run energy-etf-monitor ingest-etf-metrics --fund BRNT --load
@@ -79,8 +79,8 @@ Fetch WisdomTree Europe fund-list metric context:
 uv run energy-etf-monitor ingest-wisdomtree-metrics --load
 ```
 
-Without `--fund`, Yahoo fallback runs for the configured WisdomTree energy ETP layer after the
-official fund-list attempt.
+Without `--fund`, Yahoo fallback ingestion is skipped; WisdomTree dashboard rows use only the
+official fund-list source and show missing/stale when that source is unavailable.
 
 Fetch the rest of the monitoring backbone:
 
@@ -103,10 +103,9 @@ uv run energy-etf-monitor run-nightly --commodity ALL
 ```
 
 `run-nightly` now performs data ingestion, official ETF holdings refresh, WisdomTree fund-list
-metric refresh, fallback ETF metric refresh where configured, news ingestion, and factor-row
-construction. The GitHub schedule runs it with `--commodity ALL` so all registered commodity pages,
-including Brent, receive factor rows. It does not train models, score predictions, or run
-model-health reports.
+metric refresh, news ingestion, and factor-row construction. The GitHub schedule runs it with
+`--commodity ALL` so all registered commodity pages, including Brent, receive factor rows. It does
+not train models, score predictions, or run model-health reports.
 
 ## ETF Coverage
 
@@ -125,14 +124,14 @@ The dashboard separates official issuer data from fallback context:
   tables.
 - WisdomTree energy ETC/ETP products use the WisdomTree Europe fund-list download data. The
   connector selects the same-name USD listing (`BRNT`, `SBRT`, `LBRT`, `3BRL`, `3BRS`, plus
-  WTI/NatGas short-leveraged tickers) and falls back to Yahoo only if issuer fund-list fetching
-  fails. This is not issuer gross creation/redemption data; flow is a going-forward share-change
-  proxy.
+  WTI/NatGas short-leveraged tickers). This is not issuer gross creation/redemption data; flow is
+  a going-forward share-change proxy. If official WisdomTree fetching fails, the dashboard shows
+  stale/missing official data rather than substituting Yahoo.
 - Brent futures price/curve context uses Yahoo's free `BZ` futures symbols, and Brent positioning
   uses ICE Futures Europe's free public COT CSV for commodity code `B`; exchange-official ICE EOD
   settlement packages remain a paid upgrade path.
-- If both sources exist for the same ticker/date, dashboard flow views prefer official issuer
-  sources over Yahoo estimates.
+- Dashboard flow views ignore Yahoo estimates for WisdomTree products so old fallback rows cannot
+  be mistaken for issuer/fund-list data.
 
 ## Architecture
 
@@ -168,8 +167,7 @@ Implemented:
 - Official USCF holdings/dailyprice connector with token discovery from USCF's public site.
 - Official ProShares HTML holdings connector for `UCO`, `SCO`, `BOIL`, and `KOLD`.
 - ETF registry and dashboard views for flow, strategy buckets, and contract-month exposure.
-- Yahoo fallback metric ingestion for explicit cross-checks and products without issuer
-  connectors.
+- Yahoo ETF metric ingestion for explicit cross-checks only.
 - EIA, FRED, CFTC/ICE COT, futures-curve, GDELT/RSS/Marketaux, and optional LLM news connectors.
 - SQLite/Postgres-compatible point-in-time storage with raw payload replay.
 - Streamlit dashboard and static HTML report generation.

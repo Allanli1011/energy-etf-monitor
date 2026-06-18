@@ -61,9 +61,15 @@ def _news(moment: datetime) -> NewsArticle:
     )
 
 
-def _metric(ticker: str, report_date: date, flow: float | None) -> FundDailyMetric:
+def _metric(
+    ticker: str,
+    report_date: date,
+    flow: float | None,
+    *,
+    source: str = "yahoo_etf",
+) -> FundDailyMetric:
     return FundDailyMetric(
-        source="yahoo_etf",
+        source=source,
         fund_ticker=ticker,
         report_date=report_date,
         knowledge_date=datetime.combine(report_date, datetime.min.time(), tzinfo=UTC),
@@ -164,7 +170,12 @@ def test_render_dashboard_includes_brent_etp_universe_and_coverage_note() -> Non
         as_of=as_of,
         fund_metrics=[
             _metric("BNO", date(2026, 6, 12), 3_000_000),
-            _metric("SBRT", date(2026, 6, 12), -2_000_000),
+            _metric(
+                "SBRT",
+                date(2026, 6, 12),
+                -2_000_000,
+                source="wisdomtree_fundlist",
+            ),
         ],
         commodities=("WTI", "BRENT"),
     )

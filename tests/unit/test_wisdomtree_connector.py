@@ -6,6 +6,7 @@ import energy_etf_monitor.ingestion.wisdomtree as wisdomtree
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.ingestion.wisdomtree import (
     WISDOMTREE_FUNDLIST_PARAMS,
+    WISDOMTREE_PRODUCTS_URL,
     WisdomTreeFundListConnector,
     parse_wisdomtree_fundlist_metrics,
 )
@@ -115,4 +116,59 @@ def test_wisdomtree_connector_uses_browser_tls_fallback_for_403(monkeypatch) -> 
     assert [metric.fund_ticker for metric in metrics] == ["BRNT"]
     assert browser_tls_calls == [
         ("https://example.test/fundlist/data/", WISDOMTREE_FUNDLIST_PARAMS)
+    ]
+
+
+def test_browser_tls_fetch_warms_products_page_and_retries_impersonations(
+    monkeypatch,
+) -> None:
+    from curl_cffi import requests as curl_requests
+
+    calls: list[tuple[str, str, object | None]] = []
+
+    class FakeResponse:
+        def __init__(self, *, status_code: int = 200, payload: object | None = None) -> None:
+            self.status_code = status_code
+            self.payload = payload or []
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+        def json(self) -> object:
+            return self.payload
+
+    class FakeSession:
+        def __init__(self, *, impersonate: str, timeout: int) -> None:
+            self.impersonate = impersonate
+            self.timeout = timeout
+            self.headers: dict[str, str] = {}
+            self.closed = False
+
+        def get(self, url: str, *, params: object | None = None, **kwargs) -> FakeResponse:
+            _ = kwargs
+            calls.append((self.impersonate, url, params))
+            if url == WISDOMTREE_PRODUCTS_URL:
+                return FakeResponse()
+            if self.impersonate == "chrome146":
+                return FakeResponse(status_code=403)
+            return FakeResponse(payload=SAMPLE_FUNDLIST)
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(wisdomtree, "_BROWSER_TLS_IMPERSONATIONS", ("chrome146", "chrome120"))
+    monkeypatch.setattr(curl_requests, "Session", FakeSession)
+
+    payload = wisdomtree._fetch_with_browser_tls(
+        "https://example.test/fundlist/data/",
+        WISDOMTREE_FUNDLIST_PARAMS,
+    )
+
+    assert payload == SAMPLE_FUNDLIST
+    assert calls == [
+        ("chrome146", WISDOMTREE_PRODUCTS_URL, None),
+        ("chrome146", "https://example.test/fundlist/data/", WISDOMTREE_FUNDLIST_PARAMS),
+        ("chrome120", WISDOMTREE_PRODUCTS_URL, None),
+        ("chrome120", "https://example.test/fundlist/data/", WISDOMTREE_FUNDLIST_PARAMS),
     ]

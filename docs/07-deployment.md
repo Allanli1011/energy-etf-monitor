@@ -11,8 +11,7 @@ it does not train or run prediction models.
 - `.github/workflows/backfill.yml`: manual source/factor backfill, no model training.
 - `.github/workflows/pages.yml`: builds and deploys the static dashboard to GitHub Pages.
   The Pages build restores SQLite state, refreshes official ETF snapshots, refreshes WisdomTree
-  fund-list metrics, refreshes configured Yahoo fallback ETF metrics, and then renders the static
-  site.
+  fund-list metrics, and then renders the static site.
 
 The old monthly retrain workflow has been removed.
 
@@ -23,9 +22,8 @@ The old monthly retrain workflow has been removed.
 1. EIA/FRED/CFTC/ICE COT/futures ingestion.
 2. Official ETF holdings and NAV/share ingestion from USCF and ProShares.
 3. WisdomTree fund-list NAV/share/AUM ingestion where configured.
-4. Fallback Yahoo ETF metric context ingestion where configured.
-5. News ingestion and optional alerts.
-6. Point-in-time factor-row construction for all registered commodities.
+4. News ingestion and optional alerts.
+5. Point-in-time factor-row construction for all registered commodities.
 
 The scheduled workflow calls `run-nightly --commodity ALL`. It does not require `models/*.json`,
 `gbm`, or model artifact secrets.
@@ -71,15 +69,15 @@ used to push the `state` branch.
 | `ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY` + `ENERGY_ETF_MONITOR_NEWS_CLASSIFIER=llm` | Enable optional LLM classifier |
 | `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL` + `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_KIND` | Post high-impact news alerts to Slack or ntfy |
 
-Without optional secrets the pipeline still runs on EIA/FRED/CFTC/ICE COT/USCF/ProShares/Yahoo
-fallback/GDELT/RSS and the rule-based classifier.
+Without optional secrets the pipeline still runs on EIA/FRED/CFTC/ICE COT/USCF/ProShares/
+WisdomTree/GDELT/RSS and the rule-based classifier.
 
 ## Manual Backfill
 
 Use `.github/workflows/backfill.yml` from the Actions tab to rebuild source/factor history. It:
 
 - restores state;
-- refreshes official ETF snapshots and any configured fallback ETF metrics;
+- refreshes official ETF snapshots and WisdomTree fund-list metrics;
 - ingests each commodity's phase-0 sources;
 - backfills historical curve rows;
 - builds factor rows and exports temporary Parquet caches;
@@ -95,6 +93,7 @@ backfills, or manual dispatch. It restores SQLite state first, then runs:
 ```bash
 uv run energy-etf-monitor init-db
 uv run energy-etf-monitor ingest-etf-holdings --load
+uv run energy-etf-monitor ingest-wisdomtree-metrics --load
 uv run energy-etf-monitor render-report --output-dir site
 ```
 

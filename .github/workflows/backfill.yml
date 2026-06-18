@@ -51,7 +51,7 @@ jobs:
         run: |
           set -e
           uv run energy-etf-monitor ingest-etf-holdings --load || echo "official ETF holdings skipped"
-          uv run energy-etf-monitor ingest-etf-metrics --load || echo "ETF metric context skipped"
+          uv run energy-etf-monitor ingest-wisdomtree-metrics --load || echo "WisdomTree ETF metrics skipped"
           for C in WTI NATGAS RBOB; do
             LC=$(echo "$C" | tr 'A-Z' 'a-z')
             echo "::group::$C ingest history"

@@ -58,8 +58,7 @@ monitoring view should not silently use data that was not public yet at the sele
 A data-first monitoring pipeline and dashboard:
 
 - official ETF dailyprice/NAV/share and holdings ingestion from USCF and ProShares;
-- fallback Yahoo ETF metric ingestion only for explicit cross-checks or products without issuer
-  connectors;
+- Yahoo ETF metric ingestion only for explicit cross-checks;
 - futures curves, inventory, macro, COT, and news ingestion;
 - point-in-time factor rows;
 - Streamlit and static HTML dashboards;
@@ -84,4 +83,4 @@ is retained as research context, but it should not drive current workflows or do
 1. Do not add phantom chemicals scope.
 2. Prefer issuer primary data over third-party ETF aggregators.
 3. Keep fragile futures-curve scraping behind a swappable provider interface.
-4. Never let Yahoo fallback ETF metrics override official issuer data for the same fund/date.
+4. Never auto-substitute Yahoo ETF metrics for WisdomTree official fund-list rows.

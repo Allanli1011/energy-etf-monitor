@@ -1,5 +1,6 @@
 """WisdomTree Europe fund-list metrics connector."""
 
+from contextlib import suppress
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -8,6 +9,10 @@ import httpx
 from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.records import FundDailyMetric
 
+WISDOMTREE_PRODUCTS_URL = (
+    "https://www.wisdomtree.eu/products?assetClass=Commodities&structure=ETPs"
+    "&productType=Short%20and%20Leveraged"
+)
 WISDOMTREE_FUNDLIST_URL = "https://dataspanapi.wisdomtree.com/fundlist/data/"
 WISDOMTREE_FUNDLIST_PARAMS = {
     "divisionId": 2,
@@ -19,6 +24,16 @@ WISDOMTREE_FUNDLIST_PARAMS = {
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
+_BROWSER_TLS_IMPERSONATIONS = (
+    "chrome146",
+    "chrome145",
+    "chrome142",
+    "chrome136",
+    "chrome133a",
+    "chrome131",
+    "chrome124",
+    "chrome120",
 )
 
 
@@ -179,20 +194,24 @@ def _optional_number(value: Any) -> float | None:
 def _fetch_with_browser_tls(url: str, params: dict[str, Any]) -> Any:
     from curl_cffi import requests as curl_requests
 
-    response = curl_requests.get(
-        url,
-        params=params,
-        headers={
-            "accept": "application/json, text/plain, */*",
-            "accept-language": "en-GB,en;q=0.9,en-US;q=0.8",
-            "origin": "https://www.wisdomtree.eu",
-            "referer": (
-                "https://www.wisdomtree.eu/products?assetClass=Commodities"
-                "&structure=ETPs&productType=Short%20and%20Leveraged"
-            ),
-        },
-        impersonate="chrome120",
-        timeout=40,
-    )
-    response.raise_for_status()
-    return response.json()
+    errors: list[str] = []
+    headers = {
+        "accept": "application/json, text/plain, */*",
+        "accept-language": "en-GB,en;q=0.9,en-US;q=0.8",
+        "origin": "https://www.wisdomtree.eu",
+        "referer": WISDOMTREE_PRODUCTS_URL,
+    }
+    for impersonate in _BROWSER_TLS_IMPERSONATIONS:
+        session = curl_requests.Session(impersonate=impersonate, timeout=40)
+        session.headers.update(headers)
+        try:
+            with suppress(Exception):
+                session.get(WISDOMTREE_PRODUCTS_URL)
+            response = session.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            errors.append(f"{impersonate}: {exc}")
+        finally:
+            session.close()
+    raise RuntimeError("WisdomTree browser-TLS fetch failed: " + "; ".join(errors))

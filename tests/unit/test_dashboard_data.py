@@ -255,6 +255,35 @@ def test_etf_flow_rows_prefer_official_issuer_metrics_over_yahoo_estimates() -> 
     assert "2026-06-13" not in chart["dates"]
 
 
+def test_wisdomtree_flow_rows_ignore_yahoo_only_metrics() -> None:
+    funds = etf_funds_for_commodity("WTI")
+    metrics = [
+        _metric("SOIL", date(2026, 6, 13), aum=111_000_000, flow=3_000_000),
+        _metric("SOIL", date(2026, 6, 14), aum=112_000_000, flow=1_000_000),
+    ]
+
+    rows = etf_flow_rows(metrics, funds=funds)
+
+    soil = next(row for row in rows if row["ticker"] == "SOIL")
+    assert soil["latest_date"] == ""
+    assert soil["latest_aum_usd"] is None
+    assert soil["daily_flow_usd"] is None
+    assert soil["exposure_flow_usd"] is None
+
+    health_rows = etf_source_health_rows(metrics, holdings=[], funds=funds)
+    soil_health = next(row for row in health_rows if row["ticker"] == "SOIL")
+    assert soil_health["status"] == "missing"
+    assert soil_health["metric_source"] == ""
+    assert soil_health["latest_metric_date"] == ""
+    assert "No issuer metric snapshot loaded" in soil_health["note"]
+    assert "Yahoo fallback" not in soil_health["note"]
+
+    chart = etf_flow_chart(metrics, funds=funds)
+    exposure_chart = etf_exposure_flow_chart(metrics, funds=funds)
+    assert "SOIL" not in {series["name"] for series in chart["series"]}
+    assert "SOIL" not in {series["name"] for series in exposure_chart["series"]}
+
+
 def test_etf_strategy_summary_rows_aggregate_by_strategy_type() -> None:
     funds = etf_funds_for_commodity("WTI")
     metrics = [

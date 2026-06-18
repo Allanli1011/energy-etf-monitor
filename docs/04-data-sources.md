@@ -14,7 +14,7 @@ A free backbone is enough for the non-model monitoring MVP. Paid sources remain 
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings stack via ALPS MarketingAPI | Fetch `api_key.php` from USCF, then call `dailyprice/{ticker}` and `holding/{ticker}/full` with the bearer token | Daily, T+1 |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | `UCO`, `SCO`, `BOIL`, `KOLD` HTML pages with price/snapshot blocks and holdings tables | Daily, T+1 |
 | WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | `fundlist/data` JSON behind the Products page/download; select same-name USD listings for Brent, WTI, and NatGas ETPs | Daily |
-| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit fallback/cross-check for products without issuer/fund-list metrics | Daily |
+| ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit manual cross-check; not auto-loaded for WisdomTree dashboard rows | Daily |
 | News / sentiment | GDELT 2.0 DOC API, RSS, optional Marketaux | Free headline/event ingestion and rule-based classification | Intraday |
 | Sector flow context | ICI weekly ETF net issuance | Commodity ETFs as one aggregate bucket | Weekly |
 
@@ -75,9 +75,11 @@ all `USD`.
 
 The current WisdomTree fund-list endpoint is Cloudflare-protected for default script HTTP clients.
 The production connector uses `curl_cffi` browser-TLS impersonation for the same official JSON
-before falling back to Yahoo snapshots where configured. The separate `funddetails/nav` API shape
-is known to include `nav`, `sharesOutstanding`, and `aum`, but it requires an `x-wt-dataspan-key`,
-so it remains disabled as a keyed connector.
+and warms the public product-list page before requesting the JSON. If official fetching fails,
+the loader leaves the last official `wisdomtree_fundlist` rows in place; the dashboard marks them
+stale when they age out, or missing if no official row has ever been loaded. The separate
+`funddetails/nav` API shape is known to include `nav`, `sharesOutstanding`, and `aum`, but it
+requires an `x-wt-dataspan-key`, so it remains disabled as a keyed connector.
 
 ## ICE COT Notes
 
@@ -104,9 +106,10 @@ positioning. The explanatory notes state that ICE publishes Tuesday position dat
 - CFTC/ICE `Swap Dealers` is aggregate; it cannot isolate one ETF's position.
 - USCF current public endpoints expose latest holdings, not a clean historical holdings archive.
   Going-forward raw JSON capture is therefore important.
-- Yahoo ETF metric data is a fallback estimate and should not override official issuer data.
-- WisdomTree fund-list rows are official product-list data; keep Yahoo fallback enabled for network
-  or anti-bot failures and prefer `wisdomtree_fundlist` when both sources exist.
+- Yahoo ETF metric data is a manual cross-check estimate and should not override official issuer
+  data.
+- WisdomTree fund-list rows are official product-list data; do not auto-substitute Yahoo on network
+  or anti-bot failures.
 - Yahoo Brent futures data is useful for free dashboard context, but it is not the exchange-official
   ICE end-of-day settlement package.
 - ETF.com and ETFDB fund-flow pages are unreliable for automated free ingestion; prefer issuer

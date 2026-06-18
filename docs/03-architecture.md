@@ -29,8 +29,7 @@ free and issuer data sources
 - ProShares `UCO`, `SCO`, `BOIL`, and `KOLD` data is parsed from the official fund pages:
   - the price/snapshot blocks provide NAV and net assets.
   - the holdings table provides exposure weights, descriptions, contracts, and notional values.
-- Yahoo ETF metrics are a fallback context source for explicit cross-checks or products without an
-  issuer connector.
+- Yahoo ETF metrics are a manual cross-check source and are not auto-loaded for WisdomTree rows.
 - The futures curve provider remains swappable so CME DataMine, Barchart, or another paid source
   can replace the free provider later.
 
@@ -54,16 +53,16 @@ Current default official-holdings coverage:
 - Natural gas: `UNG`, `UNL`, `BOIL`, `KOLD`
 - RBOB gasoline: `UGA`
 
-Current fallback metric context:
+Current manual cross-check metric context:
 
-- No default dashboard ETF currently depends on Yahoo fallback metrics.
+- No default dashboard ETF currently depends on Yahoo ETF metrics.
 - `ingest-etf-metrics --fund ...` remains available for explicit Yahoo cross-checks or future
   products without issuer coverage.
 
-Dashboard flow views prefer official issuer metrics over Yahoo estimates when both sources exist
-for the same fund/date. USCF `cr` is converted to flow as `cr * NAV`; if an issuer source does not
-provide creation/redemption shares, the repository can still derive a net flow proxy from changes
-in shares outstanding.
+Dashboard flow views ignore Yahoo estimates for WisdomTree products so stale/missing official
+fund-list data is visible. USCF `cr` is converted to flow as `cr * NAV`; if an issuer source does
+not provide creation/redemption shares, the repository can still derive a net flow proxy from
+changes in shares outstanding.
 
 ## Factor Rows
 

@@ -141,7 +141,7 @@ def etf_flow_rows(
     by_ticker = _metrics_by_ticker(metrics)
     rows: list[dict[str, object]] = []
     for fund in funds:
-        fund_metrics = _preferred_metric_series(by_ticker.get(fund.ticker, []))
+        fund_metrics = _fund_metric_series(by_ticker.get(fund.ticker, []), fund)
         if not fund_metrics:
             rows.append(_empty_etf_flow_row(fund))
             continue
@@ -271,7 +271,7 @@ def etf_source_health_rows(
     rows: list[dict[str, object]] = []
     for fund in funds:
         ticker = fund.ticker
-        fund_metrics = _preferred_metric_series(by_ticker.get(ticker, []))
+        fund_metrics = _fund_metric_series(by_ticker.get(ticker, []), fund)
         latest_metric = fund_metrics[-1] if fund_metrics else None
         holding_date = latest_holding_dates.get(ticker)
         holding_rows = latest_holdings.get(ticker, [])
@@ -315,7 +315,7 @@ def etf_flow_chart(
 
     by_ticker = _metrics_by_ticker(metrics)
     preferred_by_ticker = {
-        fund.ticker: _preferred_metric_series(by_ticker.get(fund.ticker, [])) for fund in funds
+        fund.ticker: _fund_metric_series(by_ticker.get(fund.ticker, []), fund) for fund in funds
     }
     dates = sorted(
         {
@@ -365,7 +365,7 @@ def etf_exposure_flow_chart(
     commodity = funds[0].commodity if funds else "COMMODITY"
     by_ticker = _metrics_by_ticker(metrics)
     preferred_by_ticker = {
-        fund.ticker: _preferred_metric_series(by_ticker.get(fund.ticker, [])) for fund in funds
+        fund.ticker: _fund_metric_series(by_ticker.get(fund.ticker, []), fund) for fund in funds
     }
     dates = sorted(
         {
@@ -447,6 +447,15 @@ def _preferred_metric_series(metrics: Sequence[FundDailyMetric]) -> list[FundDai
         return []
     best_priority = max(_metric_source_priority(metric) for metric in metrics)
     return [metric for metric in metrics if _metric_source_priority(metric) == best_priority]
+
+
+def _fund_metric_series(
+    metrics: Sequence[FundDailyMetric],
+    fund: EtfFundConfig,
+) -> list[FundDailyMetric]:
+    if fund.issuer.upper() == "WISDOMTREE":
+        metrics = [metric for metric in metrics if metric.source == "wisdomtree_fundlist"]
+    return _preferred_metric_series(metrics)
 
 
 def _metric_source_priority(metric: FundDailyMetric) -> int:
@@ -541,8 +550,10 @@ def _empty_etf_flow_row(fund: EtfFundConfig) -> dict[str, object]:
         "latest_date": "",
         "latest_aum_usd": None,
         "daily_flow_usd": None,
+        "exposure_flow_usd": None,
         "flow_pct_aum": None,
         "flow_5d_usd": None,
+        "exposure_flow_5d_usd": None,
         "flow_20d_usd": None,
         "front_month_roll": fund.front_month_roll,
         "model_input": fund.include_in_model,

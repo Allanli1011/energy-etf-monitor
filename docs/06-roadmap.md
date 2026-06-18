@@ -29,14 +29,14 @@ Implemented:
   `USO`, `USL`, `UCO`, `SCO`, `UNG`, `UNL`, `BOIL`, `KOLD`, `UGA`, `BNO`.
 - `ingest-wisdomtree-metrics --load` attempts official WisdomTree Europe fund-list metrics for
   USD-listed Brent, WTI, and natural gas ETPs.
-- `ingest-etf-metrics --fund ... --load` remains available for explicit Yahoo fallback or
-  cross-checks; without `--fund`, it fetches the configured WisdomTree energy ETP fallback layer.
-- Dashboard ETF rows prefer official issuer metrics over Yahoo estimates when both are present
-  for the same fund/date.
+- `ingest-etf-metrics --fund ... --load` remains available for explicit Yahoo cross-checks;
+  without `--fund`, it does not fetch any default Yahoo ETF layer.
+- Dashboard ETF rows ignore Yahoo estimates for WisdomTree products and show stale/missing
+  official data instead.
 - `run-nightly` now performs data ingestion, ETF holdings refresh, WisdomTree fund-list metrics,
-  fallback ETF metrics, news ingestion, and factor-row construction. The scheduled workflow runs
-  with `--commodity ALL` so every registered commodity page gets a fresh factor row. It does not
-  run prediction or model-health steps.
+  news ingestion, and factor-row construction. The scheduled workflow runs with `--commodity ALL`
+  so every registered commodity page gets a fresh factor row. It does not run prediction or
+  model-health steps.
 - GitHub Actions `nightly.yml` follows the data-monitoring path; `monthly-retrain.yml` has been
   removed; `backfill.yml` no longer trains or commits model artifacts.
 
@@ -47,7 +47,7 @@ Near-term:
 1. Add live integration smoke tests for USCF/ALPS token discovery, `dailyprice`, and
    `holding/{ticker}/full`, and ProShares holdings pages.
 2. Add source freshness checks: latest holdings date, latest dailyprice/NAV date, missing ETF rows,
-   and stale fallback metrics.
+   and stale official metrics.
 3. Add batch-level ETF validation: large AUM changes, large flow/AUM moves, missing holdings, and
    holdings weights that are unexpectedly empty or extreme.
 4. Add a dashboard freshness banner so stale ETF issuer data is visible immediately.
@@ -77,7 +77,7 @@ Historical ETF backfill:
 A working monitoring loop that, each night:
 
 - updates official ETF NAV, shares, issuer flow where disclosed, and holdings;
-- updates fallback context metrics only where configured;
+- updates official WisdomTree fund-list metrics where configured;
 - updates futures curves, inventories, COT, macro, and news;
 - builds point-in-time factor rows;
 - publishes a dashboard/static report showing ETF flow, roll pressure, contract exposure, curve,

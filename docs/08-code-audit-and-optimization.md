@@ -53,8 +53,8 @@ default Windows temp pytest directory were not writable in this sandbox.
   - USCF/ALPS API for `USO`, `USL`, `UNG`, `UNL`, `UGA`.
   - ProShares official fund pages for `UCO`, `SCO`, `BOIL`, `KOLD`.
 - Raw payloads are saved before parsing, including USCF JSON and ProShares HTML.
-- Dashboard ETF rows prefer official issuer metrics over Yahoo fallback estimates for the same
-  ticker/date.
+- Dashboard ETF rows ignore Yahoo estimates for WisdomTree products so stale/missing official data
+  remains visible.
 - Point-in-time discipline remains central: persisted rows keep `report_date` and
   `knowledge_date`, and repository reads filter by known-at time.
 - Workflows have moved to monitoring: nightly refreshes data and factor rows; backfill does not
@@ -83,8 +83,8 @@ Priority labels are implementation urgency, not business importance.
 - Added `ProSharesHoldingsConnector` for `UCO`, `SCO`, `BOIL`, and `KOLD` official fund-page data.
 - Expanded ETF registry source routing with official USCF/ProShares groups.
 - Changed `ingest-etf-holdings --load` to fetch the full official default ETF universe.
-- Changed Yahoo ETF metrics into explicit fallback/cross-check behavior.
-- Updated dashboard source priority to prefer issuer sources over `yahoo_etf`.
+- Changed Yahoo ETF metrics into explicit cross-check behavior.
+- Updated dashboard source selection to ignore `yahoo_etf` rows for WisdomTree products.
 - Updated README, data-source docs, architecture docs, roadmap, deployment notes, and architecture
   diagram for the non-model official ETF data path.
 

@@ -536,9 +536,8 @@ def run_nightly(
     typer.echo("[2/5] Ingesting official ETF holdings...")
     _ingest_official_etf_holdings(settings)
 
-    typer.echo("[3/5] Ingesting WisdomTree and fallback ETF metric context...")
+    typer.echo("[3/5] Ingesting WisdomTree ETF metric context...")
     _ingest_wisdomtree_etf_metric_context(settings)
-    _ingest_yahoo_etf_metric_context(settings)
 
     typer.echo("[4/5] Ingesting news...")
     try:
@@ -601,7 +600,7 @@ def _ingest_wisdomtree_etf_metric_context(settings: Settings) -> None:
     connector = WisdomTreeFundListConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
     try:
         metrics = connector.fetch_metrics(fund_tickers=tickers)
-    except Exception as exc:  # Cloudflare/API failures should fall through to Yahoo fallback
+    except Exception as exc:
         typer.echo(f"  ! skipped WisdomTree fund-list metrics - {exc}")
         return
     if not metrics:
@@ -639,7 +638,7 @@ def _fetch_official_etf_snapshots(settings: Settings, tickers: list[str]):
 def _ingest_yahoo_etf_metric_context(settings: Settings) -> None:
     tickers = list(default_yahoo_metric_tickers())
     if not tickers:
-        typer.echo("No fallback ETF metric tickers configured.")
+        typer.echo("No Yahoo ETF cross-check tickers configured.")
         return
     connector = YahooEtfMetricsConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
     metrics = []
@@ -652,7 +651,7 @@ def _ingest_yahoo_etf_metric_context(settings: Settings) -> None:
         except Exception as exc:  # crumb/rate-limit failures should not sink the whole run
             typer.echo(f"  ! skipped {ticker} ({source_ticker}) - {exc}")
     if not metrics:
-        typer.echo("No fallback ETF metrics loaded.")
+        typer.echo("No Yahoo ETF cross-check metrics loaded.")
         return
     with IngestionRepository.from_settings(settings) as repository:
         _echo_load_result(repository.upsert_fund_daily_metrics(metrics))
@@ -961,10 +960,13 @@ def ingest_etf_metrics(
     fund: Annotated[list[str] | None, typer.Option("--fund")] = None,
     load: bool = typer.Option(False, "--load"),
 ) -> None:
-    """Fetch Yahoo ETF AUM/price context for explicit or non-official fallback funds."""
+    """Fetch Yahoo ETF AUM/price context for explicit cross-check funds."""
 
     settings = Settings()
-    tickers = [f.upper() for f in fund] if fund else list(default_yahoo_metric_tickers())
+    tickers = [f.upper() for f in fund] if fund else []
+    if not tickers:
+        typer.echo("No default Yahoo ETF metric tickers configured; pass --fund explicitly.")
+        return
     connector = YahooEtfMetricsConnector(raw_store=RawPayloadStore(settings.raw_data_dir))
     metrics = []
     for ticker in tickers:
