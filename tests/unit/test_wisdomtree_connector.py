@@ -68,11 +68,12 @@ def test_wisdomtree_parser_selects_same_ticker_usd_listing() -> None:
     assert brnt.report_date == date(2026, 6, 15)
     assert brnt.nav_per_share == 75.73095
     assert brnt.total_net_assets == 934_914_646.29
-    assert brnt.shares_outstanding == 12_345_212
+    assert brnt.shares_outstanding == 934_914_646.29 / 75.73095
 
     sbrt = metrics[1]
     assert sbrt.report_date == date(2026, 6, 15)
     assert sbrt.total_net_assets == 52_609_684
+    assert sbrt.shares_outstanding == 52_609_684 / 9.37389
 
 
 def test_wisdomtree_connector_fetches_fundlist_and_saves_raw(tmp_path) -> None:
