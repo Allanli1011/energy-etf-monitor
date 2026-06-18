@@ -1,8 +1,12 @@
 """WisdomTree Europe fund-list metrics connector."""
 
+import re
+import xml.etree.ElementTree as ET
 from contextlib import suppress
 from datetime import UTC, date, datetime
+from io import BytesIO
 from typing import Any
+from zipfile import BadZipFile, ZipFile
 
 import httpx
 
@@ -14,6 +18,7 @@ WISDOMTREE_PRODUCTS_URL = (
     "&productType=Short%20and%20Leveraged"
 )
 WISDOMTREE_FUNDLIST_URL = "https://dataspanapi.wisdomtree.com/fundlist/data/"
+WISDOMTREE_FUNDLIST_EXCEL_URL = "https://dataspanapi.wisdomtree.com/fundlist/excel"
 WISDOMTREE_FUNDLIST_PARAMS = {
     "divisionId": 2,
     "wtRegion": "GB",
@@ -35,6 +40,7 @@ _BROWSER_TLS_IMPERSONATIONS = (
     "chrome124",
     "chrome120",
 )
+_XLSX_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
 class WisdomTreeFundListConnector:
@@ -76,14 +82,14 @@ class WisdomTreeFundListConnector:
 
     def _fetch_payload(self) -> list[dict[str, Any]]:
         if self.client is None:
-            payload = _fetch_with_browser_tls(self.fundlist_url, WISDOMTREE_FUNDLIST_PARAMS)
+            payload = _fetch_official_payload_with_browser_tls(self.fundlist_url)
         else:
             try:
                 payload = self._fetch_payload_with_httpx()
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code not in {403, 429}:
                     raise
-                payload = _fetch_with_browser_tls(self.fundlist_url, WISDOMTREE_FUNDLIST_PARAMS)
+                payload = _fetch_official_payload_with_browser_tls(self.fundlist_url)
         if not isinstance(payload, list):
             raise ValueError("WisdomTree fundlist returned a non-list payload")
         return payload
@@ -149,6 +155,44 @@ def parse_wisdomtree_fundlist_metrics(
     return metrics
 
 
+def parse_wisdomtree_fundlist_excel(content: bytes) -> list[dict[str, Any]]:
+    try:
+        with ZipFile(BytesIO(content)) as workbook:
+            shared_strings = _xlsx_shared_strings(workbook)
+            rows = _xlsx_sheet_rows(workbook, shared_strings)
+    except (BadZipFile, KeyError, ET.ParseError) as exc:
+        raise ValueError("WisdomTree fundlist Excel payload is not a readable XLSX") from exc
+
+    report_date = _xlsx_report_date(rows)
+    header_index, header = _xlsx_header(rows)
+    out: list[dict[str, Any]] = []
+    for _row_number, values in rows[header_index + 1 :]:
+        product = values.get(header["product"])
+        raw_ticker = values.get(header["ticker"])
+        nav = values.get(header["nav"])
+        aum = values.get(header["aum"])
+        base_currency = values.get(header["base ccy"])
+        listing_currency = values.get(header["trading ccy"])
+        if not product or not raw_ticker or not nav or not aum:
+            continue
+        ticker = str(raw_ticker).split()[0].upper()
+        out.append(
+            {
+                "exchangeTicker": ticker,
+                "name": str(product),
+                "fundCurrency": str(base_currency or "").strip().upper(),
+                "baseCCY": str(base_currency or "").strip().upper(),
+                "listingCCY": str(listing_currency or "").strip().upper(),
+                "AUM": aum,
+                "AUMusd": aum,
+                "NAV": nav,
+                "NAVusd": nav,
+                "NAV_Date": report_date.isoformat(),
+            }
+        )
+    return out
+
+
 def _find_usd_listing(rows: list[dict[str, Any]], ticker: str) -> dict[str, Any] | None:
     for row in rows:
         if str(row.get("exchangeTicker") or "").upper() != ticker:
@@ -191,6 +235,23 @@ def _optional_number(value: Any) -> float | None:
     return _number(value)
 
 
+def _fetch_official_payload_with_browser_tls(url: str) -> Any:
+    try:
+        return _fetch_with_browser_tls(url, WISDOMTREE_FUNDLIST_PARAMS)
+    except Exception as json_exc:
+        try:
+            excel_content = _fetch_excel_with_browser_tls(
+                WISDOMTREE_FUNDLIST_EXCEL_URL,
+                WISDOMTREE_FUNDLIST_PARAMS,
+            )
+        except Exception as excel_exc:
+            raise RuntimeError(
+                f"WisdomTree official JSON failed ({json_exc}); official Excel failed "
+                f"({excel_exc})"
+            ) from excel_exc
+        return parse_wisdomtree_fundlist_excel(excel_content)
+
+
 def _fetch_with_browser_tls(url: str, params: dict[str, Any]) -> Any:
     from curl_cffi import requests as curl_requests
 
@@ -215,3 +276,97 @@ def _fetch_with_browser_tls(url: str, params: dict[str, Any]) -> Any:
         finally:
             session.close()
     raise RuntimeError("WisdomTree browser-TLS fetch failed: " + "; ".join(errors))
+
+
+def _fetch_excel_with_browser_tls(url: str, params: dict[str, Any]) -> bytes:
+    from curl_cffi import requests as curl_requests
+
+    errors: list[str] = []
+    headers = {
+        "accept": (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
+            "application/octet-stream,*/*"
+        ),
+        "accept-language": "en-GB,en;q=0.9,en-US;q=0.8",
+        "origin": "https://www.wisdomtree.eu",
+        "referer": WISDOMTREE_PRODUCTS_URL,
+    }
+    for impersonate in _BROWSER_TLS_IMPERSONATIONS:
+        session = curl_requests.Session(impersonate=impersonate, timeout=40)
+        session.headers.update(headers)
+        try:
+            with suppress(Exception):
+                session.get(WISDOMTREE_PRODUCTS_URL)
+            response = session.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            return bytes(response.content)
+        except Exception as exc:
+            errors.append(f"{impersonate}: {exc}")
+        finally:
+            session.close()
+    raise RuntimeError("WisdomTree Excel browser-TLS fetch failed: " + "; ".join(errors))
+
+
+def _xlsx_shared_strings(workbook: ZipFile) -> list[str]:
+    try:
+        root = ET.fromstring(workbook.read("xl/sharedStrings.xml"))
+    except KeyError:
+        return []
+    return [
+        "".join(text.text or "" for text in item.findall(".//m:t", _XLSX_NS))
+        for item in root.findall("m:si", _XLSX_NS)
+    ]
+
+
+def _xlsx_sheet_rows(
+    workbook: ZipFile,
+    shared_strings: list[str],
+) -> list[tuple[int, dict[int, Any]]]:
+    root = ET.fromstring(workbook.read("xl/worksheets/sheet1.xml"))
+    rows: list[tuple[int, dict[int, Any]]] = []
+    for row in root.findall(".//m:row", _XLSX_NS):
+        values: dict[int, Any] = {}
+        for cell in row.findall("m:c", _XLSX_NS):
+            value = _xlsx_cell_value(cell, shared_strings)
+            if value is not None:
+                values[_xlsx_column_index(cell.attrib["r"])] = value
+        rows.append((int(row.attrib["r"]), values))
+    return rows
+
+
+def _xlsx_cell_value(cell: ET.Element, shared_strings: list[str]) -> Any:
+    if cell.attrib.get("t") == "inlineStr":
+        texts = cell.findall(".//m:t", _XLSX_NS)
+        return "".join(text.text or "" for text in texts)
+    value = cell.find("m:v", _XLSX_NS)
+    if value is None:
+        return None
+    raw = value.text or ""
+    if cell.attrib.get("t") == "s":
+        return shared_strings[int(raw)]
+    return raw
+
+
+def _xlsx_column_index(cell_ref: str) -> int:
+    column = 0
+    for char in re.sub(r"[^A-Z]", "", cell_ref.upper()):
+        column = column * 26 + ord(char) - ord("A") + 1
+    return column - 1
+
+
+def _xlsx_report_date(rows: list[tuple[int, dict[int, Any]]]) -> date:
+    for _row_number, values in rows:
+        for value in values.values():
+            match = re.search(r"As Of (\d{4}-\d{2}-\d{2})", str(value))
+            if match:
+                return date.fromisoformat(match.group(1))
+    raise ValueError("WisdomTree fundlist Excel payload has no as-of date")
+
+
+def _xlsx_header(rows: list[tuple[int, dict[int, Any]]]) -> tuple[int, dict[str, int]]:
+    for index, (_row_number, values) in enumerate(rows):
+        normalized = {str(value).strip().lower(): column for column, value in values.items()}
+        required = {"product", "ticker", "base ccy", "trading ccy", "nav", "aum"}
+        if required <= set(normalized):
+            return index, normalized
+    raise ValueError("WisdomTree fundlist Excel payload has no product header row")

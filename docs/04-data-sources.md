@@ -13,7 +13,7 @@ A free backbone is enough for the non-model monitoring MVP. Paid sources remain 
 | Futures curve | Yahoo Finance futures feed | CL, NG, RB, and BZ listed month snapshots where available | Daily |
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings stack via ALPS MarketingAPI | Fetch `api_key.php` from USCF, then call `dailyprice/{ticker}` and `holding/{ticker}/full` with the bearer token | Daily, T+1 |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | `UCO`, `SCO`, `BOIL`, `KOLD` HTML pages with price/snapshot blocks and holdings tables | Daily, T+1 |
-| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | `fundlist/data` JSON behind the Products page/download; select same-name USD listings for Brent, WTI, and NatGas ETPs | Daily |
+| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | `fundlist/data` JSON plus official `fundlist/excel` download behind the Products page; select same-name USD listings for Brent, WTI, and NatGas ETPs | Daily |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit manual cross-check; not auto-loaded for WisdomTree dashboard rows | Daily |
 | News / sentiment | GDELT 2.0 DOC API, RSS, optional Marketaux | Free headline/event ingestion and rule-based classification | Intraday |
 | Sector flow context | ICI weekly ETF net issuance | Commodity ETFs as one aggregate bucket | Weekly |
@@ -74,10 +74,12 @@ product can have multiple listing currencies, the connector only accepts rows wh
 all `USD`.
 
 The current WisdomTree fund-list endpoint is Cloudflare-protected for default script HTTP clients.
-The production connector uses `curl_cffi` browser-TLS impersonation for the same official JSON
-and warms the public product-list page before requesting the JSON. If official fetching fails,
-the loader leaves the last official `wisdomtree_fundlist` rows in place; the dashboard marks them
-stale when they age out, or missing if no official row has ever been loaded. The separate
+The production connector uses `curl_cffi` browser-TLS impersonation, warms the public product-list
+page, tries the official JSON first, and then tries the official Excel download before giving up.
+The Excel file does not expose direct shares outstanding, so the parser derives the same share
+proxy from `AUM / NAV`. If official fetching fails, the loader leaves the last official
+`wisdomtree_fundlist` rows in place; the dashboard marks them stale when they age out, or missing
+if no official row has ever been loaded. The separate
 `funddetails/nav` API shape is known to include `nav`, `sharesOutstanding`, and `aum`, but it
 requires an `x-wt-dataspan-key`, so it remains disabled as a keyed connector.
 

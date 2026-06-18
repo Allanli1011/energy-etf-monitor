@@ -30,7 +30,7 @@ path are data-monitoring first.
 |---|---|---|
 | USCF ETF NAV, shares, creation/redemption, holdings | USCF public holdings pages via ALPS MarketingAPI | Official daily JSON for `USO`, `USL`, `UNG`, `UNL`, `UGA`, `BNO`; raw payloads saved before parsing. |
 | ProShares ETF NAV, shares, holdings | ProShares official fund pages | Official page HTML for `UCO`, `SCO`, `BOIL`, `KOLD`; holdings tables include exposure weights and contract months. |
-| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | Official product-list JSON for USD listings of WisdomTree Brent, WTI, and natural gas ETPs; the connector uses browser-TLS fetching against the official endpoint. |
+| WisdomTree ETP NAV, shares, AUM | WisdomTree Europe fund-list download API | Official product-list JSON/Excel for USD listings of WisdomTree Brent, WTI, and natural gas ETPs; the connector uses browser-TLS fetching against official endpoints. |
 | ETF fallback AUM/price context | Yahoo Finance quote summary | Explicit manual cross-check only; not auto-loaded for WisdomTree and never used in WisdomTree dashboard rows. |
 | Futures curves | Yahoo Finance futures feed | Daily curve rows by commodity product code, including Brent `BZ=F` / `BZ*.NYM`. |
 | Inventory | EIA API | Crude, Cushing, natural gas, and product inventory series; Brent has no EIA-style inventory series configured. |
