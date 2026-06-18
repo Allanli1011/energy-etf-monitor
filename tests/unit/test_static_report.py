@@ -169,7 +169,7 @@ def test_render_dashboard_includes_brent_etp_universe_and_coverage_note() -> Non
         commodities=("WTI", "BRENT"),
     )
 
-    assert "CFTC COT positioning is available when ingested" in page
+    assert "ICE COT positioning is available when ingested" in page
     assert "No EIA-style inventory series is configured" in page
     for ticker in ("BNO", "BRNT", "SBRT", "LBRT", "3BRL", "3BRS"):
         assert ticker in page

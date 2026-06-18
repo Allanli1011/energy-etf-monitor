@@ -20,7 +20,7 @@ The old monthly retrain workflow has been removed.
 
 `run-nightly` performs:
 
-1. EIA/FRED/CFTC/futures ingestion.
+1. EIA/FRED/CFTC/ICE COT/futures ingestion.
 2. Official ETF holdings and NAV/share ingestion from USCF and ProShares.
 3. WisdomTree fund-list NAV/share/AUM ingestion where configured.
 4. Fallback Yahoo ETF metric context ingestion where configured.
@@ -71,7 +71,7 @@ used to push the `state` branch.
 | `ENERGY_ETF_MONITOR_ANTHROPIC_API_KEY` + `ENERGY_ETF_MONITOR_NEWS_CLASSIFIER=llm` | Enable optional LLM classifier |
 | `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_URL` + `ENERGY_ETF_MONITOR_ALERT_WEBHOOK_KIND` | Post high-impact news alerts to Slack or ntfy |
 
-Without optional secrets the pipeline still runs on EIA/FRED/CFTC/USCF/ProShares/Yahoo
+Without optional secrets the pipeline still runs on EIA/FRED/CFTC/ICE COT/USCF/ProShares/Yahoo
 fallback/GDELT/RSS and the rule-based classifier.
 
 ## Manual Backfill

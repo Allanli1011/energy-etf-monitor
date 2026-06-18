@@ -71,7 +71,7 @@ Priority labels are implementation urgency, not business importance.
 | P1 | HTTP robustness | Issuer endpoints can still drift or rate-limit; connectors lack shared retries/backoff/source-health metrics. | Add a shared fetch wrapper with retries, backoff, status capture, and source-specific client overrides. |
 | P1 | Repository size | `IngestionRepository` mixes upserts, dashboard read models, feature assembly, and derived metrics. | Split persistence, feature building, dashboard queries, and derived metric services. |
 | P1 | Migrations | Schema evolution is not versioned for SQLite/Postgres. | Add Alembic or a minimal versioned migration table before expanding ETF fields further. |
-| P2 | Live integration suite | The live smoke was manual. CI should not hit free endpoints on every push, but manual integration tests would catch endpoint drift. | Add `pytest -m integration` tests for USCF/ALPS, ProShares pages, Yahoo futures, CFTC, and EIA. |
+| P2 | Live integration suite | The live smoke was manual. CI should not hit free endpoints on every push, but manual integration tests would catch endpoint drift. | Add `pytest -m integration` tests for USCF/ALPS, ProShares pages, Yahoo futures, CFTC/ICE COT, and EIA. |
 | P2 | CLI naming | Some legacy WTI/model-era commands remain visible. | Add generic aliases and mark modeling commands as archived/research in help text. |
 | P2 | Dashboard UX | The dashboard lacks a compact source-health banner and stale-data warnings. | Show latest issuer as-of date, source, and fallback/official status per ETF. |
 | P3 | Performance | Per-row upserts are fine for current volumes but will slow if historical backfills grow. | Add bulk upsert only after profiling shows it matters. |

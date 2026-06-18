@@ -35,7 +35,7 @@ path are data-monitoring first.
 | Futures curves | Yahoo Finance futures feed | Daily curve rows by commodity product code, including Brent `BZ=F` / `BZ*.NYM`. |
 | Inventory | EIA API | Crude, Cushing, natural gas, and product inventory series; Brent has no EIA-style inventory series configured. |
 | Macro | FRED API | USD index, real yields, WTI spot, retail gasoline. |
-| Positioning | CFTC Socrata COT | Disaggregated futures-only positioning, including Brent Last Day `06765T`. |
+| Positioning | CFTC Socrata COT; ICE Futures Europe public COT CSV | WTI/NatGas/RBOB use CFTC disaggregated futures-only positioning; Brent uses ICE Futures Europe COT commodity code `B`. |
 | News | GDELT + RSS, optional Marketaux/LLM | Classified into market-moving event rows and optional alerts. |
 
 ## Quick Start
@@ -129,8 +129,8 @@ The dashboard separates official issuer data from fallback context:
   fails. This is not issuer gross creation/redemption data; flow is a going-forward share-change
   proxy.
 - Brent futures price/curve context uses Yahoo's free `BZ` futures symbols, and Brent positioning
-  uses the CFTC Brent Last Day COT market code `06765T`; exchange-official ICE EOD settlement
-  packages remain a paid upgrade path.
+  uses ICE Futures Europe's free public COT CSV for commodity code `B`; exchange-official ICE EOD
+  settlement packages remain a paid upgrade path.
 - If both sources exist for the same ticker/date, dashboard flow views prefer official issuer
   sources over Yahoo estimates.
 
@@ -170,14 +170,14 @@ Implemented:
 - ETF registry and dashboard views for flow, strategy buckets, and contract-month exposure.
 - Yahoo fallback metric ingestion for explicit cross-checks and products without issuer
   connectors.
-- EIA, FRED, CFTC, futures-curve, GDELT/RSS/Marketaux, and optional LLM news connectors.
+- EIA, FRED, CFTC/ICE COT, futures-curve, GDELT/RSS/Marketaux, and optional LLM news connectors.
 - SQLite/Postgres-compatible point-in-time storage with raw payload replay.
 - Streamlit dashboard and static HTML report generation.
 - CI, nightly monitoring workflow, manual data backfill workflow, and Pages publishing.
 
 Main remaining work:
 
-- Add live integration smoke tests for USCF/ALPS, ProShares pages, Yahoo, CFTC, EIA,
+- Add live integration smoke tests for USCF/ALPS, ProShares pages, Yahoo, CFTC/ICE COT, EIA,
   and Pages rendering.
 - Add batch-level source freshness/sequence checks, especially for ETF AUM jumps and missing
   holdings dates.

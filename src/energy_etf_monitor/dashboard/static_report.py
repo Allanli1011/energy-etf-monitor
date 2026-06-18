@@ -77,9 +77,9 @@ def _cot_series(cot_positions: Sequence[CotPosition]) -> dict:
              "values": [net(getattr(c, lo), getattr(c, sh)) for c in ordered]}
             for name, lo, sh in categories
         ],
-        "title": "Positioning by trader type — net (CFTC disaggregated COT)",
+        "title": "Positioning by trader type — net (disaggregated COT)",
         "yLabel": "Net contracts (long − short)",
-        "explain": "Net position (long − short) for each CFTC disaggregated trader category. "
+        "explain": "Net position (long − short) for each disaggregated COT trader category. "
                    "Producer / merchant / processor / user are the physical hedgers (producers "
                    "tend net short, consumers net long) — this is the producer-hedger flow. Swap "
                    "dealers mostly offset index/ETF exposure; managed money is speculative (CTAs, "
@@ -179,7 +179,7 @@ def _coverage_note(commodity: str) -> str:
         )
     if config.inventory_series_id is None:
         return (
-            f"{config.name} futures prices use the free Yahoo Finance futures feed and CFTC COT "
+            f"{config.name} futures prices use the free Yahoo Finance futures feed and ICE COT "
             "positioning is available when ingested. No EIA-style inventory series is configured "
             "for this commodity, and this is not the paid exchange-official ICE EOD package."
         )
@@ -651,7 +651,7 @@ function render(){
     <h2>Latest market-moving news</h2>
     <table><thead><tr><th>published</th><th>headline (click to open)</th><th>commodity</th><th>catalyst</th><th>importance</th><th>direction</th><th>confidence</th></tr></thead><tbody>${newsRows}</tbody></table>
     <p class="explain">Headlines are pulled from free news feeds (GDELT / RSS) and classified by catalyst, directional lean and confidence. Click a headline to open the source article.</p>
-    <footer>Energy ETF monitor · self-contained factor dashboard · data: issuer ETF holdings (USCF/ProShares), Yahoo Finance (futures/fallback), EIA (inventory), FRED (macro), CFTC (positioning), GDELT/RSS (news). No price forecast, no JavaScript trackers, no external assets.</footer>`;
+    <footer>Energy ETF monitor · self-contained factor dashboard · data: issuer ETF holdings (USCF/ProShares), Yahoo Finance (futures/fallback), EIA (inventory), FRED (macro), CFTC/ICE (positioning), GDELT/RSS (news). No price forecast, no JavaScript trackers, no external assets.</footer>`;
 
   document.querySelectorAll(".ranges button").forEach(b=>b.addEventListener("click",()=>{
     const m=b.getAttribute("data-m"); RANGE = (m==="null"||m===null)?null:parseInt(m,10);

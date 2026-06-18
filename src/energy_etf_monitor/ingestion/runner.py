@@ -9,6 +9,7 @@ from energy_etf_monitor.ingestion.base import RawPayloadStore
 from energy_etf_monitor.ingestion.cftc import CftcCotConnector
 from energy_etf_monitor.ingestion.eia import EiaSeriesConnector
 from energy_etf_monitor.ingestion.fred import FredSeriesConnector
+from energy_etf_monitor.ingestion.ice import IceCotConnector
 from energy_etf_monitor.ingestion.yahoo import YahooFuturesConnector
 from energy_etf_monitor.records import CotPosition, FuturesSettlement, TimeSeriesObservation
 from energy_etf_monitor.storage.repository import IngestionRepository, LoadResult
@@ -36,6 +37,16 @@ class FredConnectorLike(Protocol):
 
 
 class CftcConnectorLike(Protocol):
+    def fetch_positions(
+        self,
+        *,
+        commodity: str,
+        contract_market_code: str,
+        limit: int,
+    ) -> list[CotPosition]: ...
+
+
+class IceCotConnectorLike(Protocol):
     def fetch_positions(
         self,
         *,
@@ -92,6 +103,7 @@ class PhaseZeroIngestionRunner:
         eia_connector: EiaConnectorLike | None = None,
         fred_connector: FredConnectorLike | None = None,
         cftc_connector: CftcConnectorLike | None = None,
+        ice_cot_connector: IceCotConnectorLike | None = None,
         curve_provider: CurveProviderLike | None = None,
         repository_factory: Callable[
             [Settings],
@@ -115,6 +127,7 @@ class PhaseZeroIngestionRunner:
             app_token=settings.cftc_app_token,
             raw_store=raw_store,
         )
+        self.ice_cot_connector = ice_cot_connector or IceCotConnector(raw_store=raw_store)
         self.curve_provider = curve_provider or YahooFuturesConnector(raw_store=raw_store)
         self.repository_factory = repository_factory
         self.commodities = tuple(commodities)
@@ -185,14 +198,21 @@ class PhaseZeroIngestionRunner:
                 load=repository.upsert_time_series if repository is not None else None,
             )
         for config in self.commodities:
+            cot_connector = (
+                self.ice_cot_connector if config.cot_source == "ice_cot" else self.cftc_connector
+            )
             self._ingest_source(
                 runs,
-                source="cftc",
+                source=config.cot_source,
                 name=f"{config.name} COT",
-                fetch=lambda config=config: self.cftc_connector.fetch_positions(
-                    commodity=config.name,
-                    contract_market_code=config.cot_contract_market_code,
-                    limit=cot_limit,
+                fetch=(
+                    lambda config=config, cot_connector=cot_connector: (
+                        cot_connector.fetch_positions(
+                            commodity=config.name,
+                            contract_market_code=config.cot_contract_market_code,
+                            limit=cot_limit,
+                        )
+                    )
                 ),
                 load=repository.upsert_cot_positions if repository is not None else None,
             )

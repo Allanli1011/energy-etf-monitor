@@ -8,7 +8,7 @@ decision-useful dashboard views.
 
 | Phase | Focus | Deliverable |
 |---|---|---|
-| 0 | Foundation | SQLite/Postgres storage, raw payload archive, EIA/FRED/CFTC/futures connectors, quality gate. |
+| 0 | Foundation | SQLite/Postgres storage, raw payload archive, EIA/FRED/CFTC/ICE COT/futures connectors, quality gate. |
 | 1 | Official ETF data | USCF and ProShares official ETF connectors for the default dashboard universe; derive flow and contract-month exposure. |
 | 2 | Monitoring factors | Point-in-time factor rows for curve, inventory, COT, macro, ETF crowding, roll window, and news. |
 | 3 | Dashboard | Streamlit/static report with ETF Flow & Roll Pressure, curve, COT, inventory, and news panels. |
@@ -60,8 +60,8 @@ Issuer coverage:
   `LOIL`, `3OIL`, `3OIS`), and natural gas (`SNGA`, `LNGA`, `3NGL`, `3NGS`) using same-name USD
   listings where available.
 - Brent dashboard: covers `BNO`, `BRNT`, `SBRT`, `LBRT`, `3BRL`, and `3BRS`; Brent futures
-  factors use Yahoo `BZ` prices/curve snapshots and CFTC Brent Last Day code `06765T`. EIA-style
-  inventory coverage remains unavailable.
+  factors use Yahoo `BZ` prices/curve snapshots and ICE Futures Europe COT commodity code `B`.
+  EIA-style inventory coverage remains unavailable.
 
 Historical ETF backfill:
 

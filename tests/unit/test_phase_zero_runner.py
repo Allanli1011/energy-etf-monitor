@@ -22,12 +22,17 @@ def _observation(series_id: str) -> TimeSeriesObservation:
     )
 
 
-def _cot_position() -> CotPosition:
+def _cot_position(
+    *,
+    source: str = "cftc",
+    commodity: str = "WTI",
+    contract_market_code: str = "067651",
+) -> CotPosition:
     return CotPosition(
-        source="cftc",
-        commodity="WTI",
+        source=source,
+        commodity=commodity,
         market_name="CRUDE OIL, LIGHT SWEET",
-        contract_market_code="067651",
+        contract_market_code=contract_market_code,
         report_date=date(2026, 6, 9),
         knowledge_date=datetime(2026, 6, 12, 19, 30, tzinfo=UTC),
         open_interest=100,
@@ -146,7 +151,7 @@ def test_phase_zero_runner_loads_records_with_matching_repository_methods(tmp_pa
 def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
     from energy_etf_monitor.commodities import BRENT, NATGAS, WTI
 
-    calls: dict[str, list] = {"eia": [], "cot": [], "cme": []}
+    calls: dict[str, list] = {"eia": [], "cot": [], "ice_cot": [], "cme": []}
 
     class FakeEia:
         def fetch_series(self, series_id: str):
@@ -162,6 +167,17 @@ def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
             calls["cot"].append((commodity, contract_market_code))
             return [_cot_position()]
 
+    class FakeIceCot:
+        def fetch_positions(self, *, commodity: str, contract_market_code: str, limit: int):
+            calls["ice_cot"].append((commodity, contract_market_code))
+            return [
+                _cot_position(
+                    source="ice_cot",
+                    commodity=commodity,
+                    contract_market_code=contract_market_code,
+                )
+            ]
+
     class FakeCme:
         def fetch_curve(self, *, product_code: str, trade_date: date):
             calls["cme"].append(product_code)
@@ -172,14 +188,16 @@ def test_phase_zero_runner_ingests_multiple_commodities(tmp_path) -> None:
         eia_connector=FakeEia(),
         fred_connector=FakeFred(),
         cftc_connector=FakeCftc(),
+        ice_cot_connector=FakeIceCot(),
         curve_provider=FakeCme(),
         commodities=(WTI, NATGAS, BRENT),
     )
 
     runner.run(load=False, trade_date=date(2026, 6, 12), cot_limit=10)
 
-    # COT fetched per commodity with each contract code; curve per product code.
-    assert calls["cot"] == [("WTI", "067651"), ("NATGAS", "023651"), ("BRENT", "06765T")]
+    # COT fetched per commodity from its configured source; curve per product code.
+    assert calls["cot"] == [("WTI", "067651"), ("NATGAS", "023651")]
+    assert calls["ice_cot"] == [("BRENT", "B")]
     assert calls["cme"] == ["CL", "NG", "BZ"]
     # NatGas storage series is folded into the EIA series list.
     assert "NG.NW2_EPG0_SWO_R48_BCF.W" in calls["eia"]

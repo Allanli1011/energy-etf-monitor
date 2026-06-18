@@ -46,7 +46,7 @@ Both are net proxies, not gross AP activity.
 
 | Data | Lag at decision time |
 |---|---|
-| CFTC COT | T+3 |
+| CFTC / ICE COT | T+3 |
 | ETF holdings | Usually T+1 |
 | EIA inventory | Same day, only after release time |
 

@@ -7,7 +7,8 @@ def test_registry_contains_core_energy_commodities() -> None:
     assert set(COMMODITIES) == {"WTI", "NATGAS", "RBOB", "BRENT"}
     assert all(config.curve_source == "yahoo" for config in COMMODITIES.values())
     assert BRENT.product_code == "BZ"
-    assert BRENT.cot_contract_market_code == "06765T"
+    assert BRENT.cot_contract_market_code == "B"
+    assert BRENT.cot_source == "ice_cot"
     assert BRENT.inventory_series_id is None
 
 

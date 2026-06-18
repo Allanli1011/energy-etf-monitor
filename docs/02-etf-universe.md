@@ -86,8 +86,8 @@ pools, their underlying futures/swap legs are not transparent daily PCF rows.
 WisdomTree energy ETP metrics are ingested from the official fund-list/download endpoint,
 selecting the same-name USD listing. Yahoo remains fallback context if issuer fund-list fetching
 fails. Their flow is a share-change proxy, not disclosed issuer creation/redemption activity.
-Brent futures context on the dashboard uses free Yahoo `BZ` futures symbols and CFTC Brent Last Day
-positioning; this does not replace exchange-official ICE end-of-day data.
+Brent futures context on the dashboard uses free Yahoo `BZ` futures symbols and ICE Futures Europe
+public COT positioning; this does not replace exchange-official ICE end-of-day settlement data.
 
 ## Chemicals — confirmed: no Western ETF wrapper exists
 

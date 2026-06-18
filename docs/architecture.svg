@@ -22,7 +22,7 @@
 
 <rect class="bg-gray" x="170" y="48" width="340" height="52" rx="8"/>
 <text class="t-title" x="340" y="71" text-anchor="middle">Data sources</text>
-<text class="t-sub" x="340" y="89" text-anchor="middle">EIA / FRED / CFTC / futures / USCF / ProShares</text>
+<text class="t-sub" x="340" y="89" text-anchor="middle">EIA / FRED / CFTC/ICE COT / futures / USCF / ProShares</text>
 <line class="arr" x1="340" y1="100" x2="340" y2="123" marker-end="url(#arrow)"/>
 
 <rect class="bg-gray" x="170" y="124" width="340" height="52" rx="8"/>

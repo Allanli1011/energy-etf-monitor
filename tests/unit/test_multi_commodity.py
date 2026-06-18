@@ -150,10 +150,10 @@ def test_derive_feature_row_supports_brent_without_inventory_series(session: Ses
     repository.upsert_cot_positions(
         [
             CotPosition(
-                source="cftc",
+                source="ice_cot",
                 commodity="BRENT",
-                market_name="BRENT LAST DAY",
-                contract_market_code="06765T",
+                market_name="ICE Brent Crude Futures - ICE Futures Europe",
+                contract_market_code="B",
                 report_date=date(2026, 6, 9),
                 knowledge_date=datetime(2026, 6, 12, 19, 30, tzinfo=UTC),
                 open_interest=250_000,
