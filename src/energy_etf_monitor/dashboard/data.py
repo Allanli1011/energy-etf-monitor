@@ -170,22 +170,83 @@ def etf_flow_rows(
     return rows
 
 
+def etf_flow_totals(
+    metrics: Sequence[FundDailyMetric],
+    *,
+    funds: Sequence[EtfFundConfig],
+) -> dict[str, object]:
+    """Date-aligned ETF flow totals for top-line cards.
+
+    Individual issuers can publish on different calendars. Flow totals therefore use one report
+    date instead of each fund's latest row, while covered AUM remains each fund's latest snapshot.
+    """
+
+    flow_rows = [row for row in etf_flow_rows(metrics, funds=funds) if row["latest_date"]]
+    latest_aum = sum(int(row["latest_aum_usd"] or 0) for row in flow_rows)
+    by_ticker = _metrics_by_ticker(metrics)
+    preferred_by_ticker = {
+        fund.ticker: _fund_metric_series(by_ticker.get(fund.ticker, []), fund) for fund in funds
+    }
+    flow_dates = sorted(
+        {
+            metric.report_date
+            for fund_metrics in preferred_by_ticker.values()
+            for metric in fund_metrics
+            if metric.implied_flow_usd is not None
+        }
+    )
+    if not flow_dates:
+        return {
+            "latest_aum_usd": latest_aum,
+            "flow_date": "",
+            "daily_flow_usd": None,
+            "exposure_flow_usd": None,
+            "leveraged_exposure_flow_usd": None,
+        }
+
+    flow_date = flow_dates[-1]
+    daily_flow = 0.0
+    exposure_flow = 0.0
+    leveraged_exposure_flow = 0.0
+    for fund in funds:
+        metric_by_date = {
+            metric.report_date: metric for metric in preferred_by_ticker.get(fund.ticker, [])
+        }
+        metric = metric_by_date.get(flow_date)
+        if metric is None or metric.implied_flow_usd is None:
+            continue
+        daily_flow += float(metric.implied_flow_usd)
+        adjusted = float(metric.implied_flow_usd) * fund.leverage
+        exposure_flow += adjusted
+        if abs(fund.leverage) > 1:
+            leveraged_exposure_flow += adjusted
+
+    return {
+        "latest_aum_usd": latest_aum,
+        "flow_date": flow_date.isoformat(),
+        "daily_flow_usd": round(daily_flow),
+        "exposure_flow_usd": round(exposure_flow),
+        "leveraged_exposure_flow_usd": round(leveraged_exposure_flow),
+    }
+
+
 def etf_strategy_summary_rows(
     metrics: Sequence[FundDailyMetric],
     *,
     funds: Sequence[EtfFundConfig],
 ) -> list[dict[str, object]]:
-    """Aggregate latest ETF flow and AUM by strategy bucket."""
+    """Aggregate latest ETF flow and AUM by strategy bucket and report date."""
 
     flow_rows = [row for row in etf_flow_rows(metrics, funds=funds) if row["latest_date"]]
-    grouped: dict[str, list[dict[str, object]]] = {}
+    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
     for row in flow_rows:
-        grouped.setdefault(str(row["strategy"]), []).append(row)
+        grouped.setdefault((str(row["strategy"]), str(row["latest_date"])), []).append(row)
     out: list[dict[str, object]] = []
-    for strategy, rows in grouped.items():
+    for (strategy, flow_date), rows in grouped.items():
         out.append(
             {
                 "strategy": strategy,
+                "flow_date": flow_date,
                 "funds": ", ".join(str(row["ticker"]) for row in rows),
                 "fund_count": len(rows),
                 "aum_usd": sum(int(row["latest_aum_usd"]) for row in rows),
@@ -199,7 +260,10 @@ def etf_strategy_summary_rows(
                 ),
             }
         )
-    out.sort(key=lambda row: abs(float(row["daily_flow_usd"])), reverse=True)
+    out.sort(
+        key=lambda row: (str(row["flow_date"]), abs(float(row["daily_flow_usd"]))),
+        reverse=True,
+    )
     return out
 
 

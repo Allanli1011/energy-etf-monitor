@@ -16,6 +16,7 @@ from energy_etf_monitor.dashboard.data import (
     etf_exposure_rows,
     etf_flow_chart,
     etf_flow_rows,
+    etf_flow_totals,
     etf_source_health_rows,
     etf_strategy_summary_rows,
     feature_time_series,
@@ -236,6 +237,7 @@ def render_dashboard_html(
         "etf": {
             "flow": etf_flow_chart(fund_metrics, funds=etf_funds),
             "exposure_flow": etf_exposure_flow_chart(fund_metrics, funds=etf_funds),
+            "totals": etf_flow_totals(fund_metrics, funds=etf_funds),
             "rows": etf_flow_rows(fund_metrics, funds=etf_funds),
             "summary": etf_strategy_summary_rows(fund_metrics, funds=etf_funds),
             "health": etf_source_health_rows(
@@ -576,16 +578,18 @@ function render(){
   const roll = d.roll;
   const alert = `<div class="alert ${roll.level}">⏱ <b>Roll watch:</b> ${esc(roll.message)} `
       + `<span style="opacity:.8">Front-month funds (e.g. ${esc((d.funds.find(f=>f.front)||{}).ticker||'')}) sell the expiring contract and buy the next during this window; large fund AUM vs. open interest can move the front-of-curve spread.</span></div>`;
-  const etf = d.etf || {rows:[],summary:[],exposure:[],flow:{series:[]},exposure_flow:{series:[]}};
-  const totalAum = (etf.rows||[]).reduce((s,r)=>s+(r.latest_aum_usd||0),0);
-  const totalFlow = (etf.rows||[]).reduce((s,r)=>s+(r.daily_flow_usd||0),0);
-  const totalExposureFlow = (etf.rows||[]).reduce((s,r)=>s+(r.exposure_flow_usd||0),0);
-  const leveragedExposureFlow = (etf.rows||[]).filter(r=>Math.abs(r.leverage||1)>1).reduce((s,r)=>s+(r.exposure_flow_usd||0),0);
+  const etf = d.etf || {rows:[],summary:[],exposure:[],flow:{series:[]},exposure_flow:{series:[]},totals:{}};
+  const totals = etf.totals || {};
+  const totalAum = totals.latest_aum_usd || 0;
+  const totalFlow = totals.daily_flow_usd;
+  const totalExposureFlow = totals.exposure_flow_usd;
+  const leveragedExposureFlow = totals.leveraged_exposure_flow_usd;
+  const flowDateLabel = totals.flow_date ? ` (${esc(totals.flow_date)})` : "";
   const metricCards = `<div class="metricgrid">
     <div class="metric"><div class="k">covered AUM</div><div class="v">${fmt(totalAum)}</div></div>
-    <div class="metric"><div class="k">ETF cash flow</div><div class="v">${fmt(totalFlow)}</div></div>
-    <div class="metric"><div class="k">${esc(d.commodity)} exposure flow</div><div class="v">${fmt(totalExposureFlow)}</div></div>
-    <div class="metric"><div class="k">leveraged exposure flow</div><div class="v">${fmt(leveragedExposureFlow)}</div></div>
+    <div class="metric"><div class="k">ETF cash flow${flowDateLabel}</div><div class="v">${fmtMaybe(totalFlow)}</div></div>
+    <div class="metric"><div class="k">${esc(d.commodity)} exposure flow${flowDateLabel}</div><div class="v">${fmtMaybe(totalExposureFlow)}</div></div>
+    <div class="metric"><div class="k">leveraged exposure flow${flowDateLabel}</div><div class="v">${fmtMaybe(leveragedExposureFlow)}</div></div>
   </div>`;
   const healthRows = (etf.health||[]).length ? etf.health.map(r=>`<tr>`
       +`<td>${esc(r.ticker)}</td><td>${esc(r.issuer)}</td>`
@@ -603,10 +607,10 @@ function render(){
       +`<td>${r.model_input?"yes":"no"}</td></tr>`).join("")
       : `<tr><td colspan="11" class="empty">No ETF metric snapshots yet.</td></tr>`;
   const summaryRows = (etf.summary||[]).length ? etf.summary.map(r=>`<tr>`
-      +`<td>${esc(r.strategy)}</td><td>${esc(r.funds)}</td><td class="num">${esc(r.fund_count)}</td>`
+      +`<td>${esc(r.strategy)}</td><td>${esc(r.flow_date||"")}</td><td>${esc(r.funds)}</td><td class="num">${esc(r.fund_count)}</td>`
       +`<td class="num">${fmtMaybe(r.aum_usd)}</td><td class="num">${fmtMaybe(r.daily_flow_usd)}</td>`
       +`<td class="num">${fmtMaybe(r.exposure_flow_usd)}</td><td class="num">${fmtMaybe(r.flow_5d_usd)}</td></tr>`).join("")
-      : `<tr><td colspan="7" class="empty">No strategy summary yet.</td></tr>`;
+      : `<tr><td colspan="8" class="empty">No strategy summary yet.</td></tr>`;
   const exposureRows = (etf.exposure||[]).length ? etf.exposure.map(r=>`<tr>`
       +`<td>${esc(r.ticker)}</td><td>${esc(r.contract_month)}</td><td>${esc(r.holding_name)}</td>`
       +`<td class="num">${fmtMaybe(r.quantity)}</td><td class="num">${fmtMaybe(r.market_value_usd)}</td>`
@@ -637,7 +641,7 @@ function render(){
     <h2>ETF source health</h2>
     <table><thead><tr><th>fund</th><th>issuer</th><th>status</th><th>metric source</th><th>metric date</th><th>holdings date</th><th>holding rows</th><th>contract rows</th><th>note</th></tr></thead><tbody>${healthRows}</tbody></table>
     <table><thead><tr><th>fund</th><th>issuer</th><th>strategy</th><th>lev</th><th>date</th><th>AUM</th><th>ETF cash flow</th><th>${esc(d.commodity)} exposure flow</th><th>flow/AUM</th><th>5d flow</th><th>model</th></tr></thead><tbody>${etfRows}</tbody></table>
-    <table><thead><tr><th>strategy</th><th>funds</th><th>count</th><th>AUM</th><th>ETF cash flow</th><th>${esc(d.commodity)} exposure flow</th><th>5d flow</th></tr></thead><tbody>${summaryRows}</tbody></table>
+    <table><thead><tr><th>strategy</th><th>flow date</th><th>funds</th><th>count</th><th>AUM</th><th>ETF cash flow</th><th>${esc(d.commodity)} exposure flow</th><th>5d flow</th></tr></thead><tbody>${summaryRows}</tbody></table>
     <h2>ETF exposure by contract month</h2>
     <table><thead><tr><th>fund</th><th>contract month</th><th>holding</th><th>quantity</th><th>market value</th><th>% NAV</th></tr></thead><tbody>${exposureRows}</tbody></table>
     <div class="ranges"><b>Time range (applies to all charts):</b> ${rangeBtns}</div>

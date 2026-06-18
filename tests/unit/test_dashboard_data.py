@@ -6,6 +6,7 @@ from energy_etf_monitor.dashboard.data import (
     etf_exposure_rows,
     etf_flow_chart,
     etf_flow_rows,
+    etf_flow_totals,
     etf_source_health_rows,
     etf_strategy_summary_rows,
     feature_time_series,
@@ -296,12 +297,54 @@ def test_etf_strategy_summary_rows_aggregate_by_strategy_type() -> None:
     rows = etf_strategy_summary_rows(metrics, funds=funds)
 
     leveraged = next(row for row in rows if row["strategy"] == "2x leveraged")
+    assert leveraged["flow_date"] == "2026-06-10"
     assert leveraged["fund_count"] == 1
     assert leveraged["aum_usd"] == 300_000_000
     assert leveraged["daily_flow_usd"] == 15_000_000
 
     front = next(row for row in rows if row["strategy"] == "front-month roll")
     assert front["funds"] == "USO"
+
+
+def test_etf_strategy_summary_rows_keep_report_dates_separate() -> None:
+    funds = etf_funds_for_commodity("WTI")
+    metrics = [
+        _metric("UCO", date(2026, 6, 17), aum=300_000_000, flow=15_000_000),
+        _metric(
+            "LOIL",
+            date(2026, 6, 16),
+            aum=45_000_000,
+            flow=2_000_000,
+            source="wisdomtree_fundlist",
+        ),
+    ]
+
+    rows = etf_strategy_summary_rows(metrics, funds=funds)
+
+    leveraged_rows = [row for row in rows if row["strategy"] == "2x leveraged"]
+    assert {row["flow_date"] for row in leveraged_rows} == {"2026-06-16", "2026-06-17"}
+    assert {row["funds"] for row in leveraged_rows} == {"LOIL", "UCO"}
+
+
+def test_etf_flow_totals_use_one_latest_flow_date() -> None:
+    funds = etf_funds_for_commodity("WTI")
+    metrics = [
+        _metric("USO", date(2026, 6, 17), aum=1_100_000_000, flow=-5_000_000),
+        _metric(
+            "SOIL",
+            date(2026, 6, 16),
+            aum=97_000_000,
+            flow=-3_000_000,
+            source="wisdomtree_fundlist",
+        ),
+    ]
+
+    totals = etf_flow_totals(metrics, funds=funds)
+
+    assert totals["latest_aum_usd"] == 1_197_000_000
+    assert totals["flow_date"] == "2026-06-17"
+    assert totals["daily_flow_usd"] == -5_000_000
+    assert totals["exposure_flow_usd"] == -5_000_000
 
 
 def test_etf_exposure_rows_show_latest_contract_month_distribution() -> None:

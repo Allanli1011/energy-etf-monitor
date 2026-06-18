@@ -138,9 +138,9 @@ def parse_wisdomtree_fundlist_metrics(
             continue
         nav = _number(row.get("NAVusd") or row.get("NAV"))
         aum = _number(row.get("AUMusd") or row.get("AUM"))
-        # The fund-list share field is not reliable across listing/product scopes.
-        # Derive listing-equivalent shares from the same USD AUM/NAV row instead.
-        shares = aum / nav
+        shares = _optional_number(row.get("SharesOutstanding"))
+        if shares is None:
+            shares = aum / nav
         metrics.append(
             FundDailyMetric(
                 source=WisdomTreeFundListConnector.source,
