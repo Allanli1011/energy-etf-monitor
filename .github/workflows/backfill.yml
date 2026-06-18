@@ -52,10 +52,11 @@ jobs:
           set -e
           uv run energy-etf-monitor ingest-etf-holdings --load || echo "official ETF holdings skipped"
           uv run energy-etf-monitor ingest-wisdomtree-metrics --load || echo "WisdomTree ETF metrics skipped"
-          for C in WTI NATGAS RBOB; do
+          for C in WTI NATGAS RBOB BRENT; do
             LC=$(echo "$C" | tr 'A-Z' 'a-z')
             echo "::group::$C ingest history"
             uv run energy-etf-monitor ingest-phase0 --commodity "$C" --load
+            uv run energy-etf-monitor ingest-yahoo-history --commodity "$C" --range "10y" --load
             uv run energy-etf-monitor ingest-yahoo-curve-history --commodity "$C" \
               --start-date "${{ inputs.start_date }}" --end-date "${{ steps.dates.outputs.end }}" --load
             echo "::endgroup::"

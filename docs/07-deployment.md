@@ -80,7 +80,7 @@ Use `.github/workflows/backfill.yml` from the Actions tab to rebuild source/fact
 - restores state;
 - refreshes official ETF snapshots and WisdomTree fund-list metrics;
 - ingests each commodity's phase-0 sources;
-- backfills historical curve rows;
+- backfills historical Yahoo front-month rows plus curve rows for WTI, NatGas, RBOB, and Brent;
 - builds factor rows and exports temporary Parquet caches;
 - pushes only the SQLite state branch.
 
