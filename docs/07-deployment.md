@@ -10,8 +10,9 @@ it does not train or run prediction models.
   late in the prior US trading evening so official ETF issuer files have more time to publish.
 - `.github/workflows/backfill.yml`: manual source/factor backfill, no model training.
 - `.github/workflows/pages.yml`: builds and deploys the static dashboard to GitHub Pages.
-  The Pages build restores SQLite state, refreshes official ETF snapshots, refreshes WisdomTree
-  fund-list metrics, and then renders the static site.
+  The Pages build restores SQLite state, refreshes official USCF/ProShares ETF snapshots, and then
+  renders the static site. WisdomTree fund-list metrics are read from persisted nightly/backfill
+  state to avoid repeated Cloudflare-protected requests during every page build.
 
 The old monthly retrain workflow has been removed.
 
@@ -93,7 +94,6 @@ backfills, or manual dispatch. It restores SQLite state first, then runs:
 ```bash
 uv run energy-etf-monitor init-db
 uv run energy-etf-monitor ingest-etf-holdings --load
-uv run energy-etf-monitor ingest-wisdomtree-metrics --load
 uv run energy-etf-monitor render-report --output-dir site
 ```
 
