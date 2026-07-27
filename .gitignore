@@ -33,6 +33,10 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 
+# Generated reports, test artifacts, and temporary clones
+output/
+tmp/
+
 # OS / editor
 .DS_Store
 .idea/
